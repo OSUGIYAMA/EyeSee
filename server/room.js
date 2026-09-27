@@ -40,6 +40,7 @@ function newSession(room, patientLang = config.patientLang) {
     doctorLang: config.doctorLang,
     patientLang,
     mode: 'interview',
+    reading: { plain: false, kana: false }, // plain explanations / hiragana for the patient
     entries: [],
     stage: null,
     speaking: { doctor: false, patient: false },

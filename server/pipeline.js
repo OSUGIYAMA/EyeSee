@@ -142,6 +142,7 @@ function applyInterpretation(room, id, role, text, r) {
     orig: { text, lang: normLang(r.sourceLanguage) || langOf(s, speaker) },
     tr: r.translation ? { text: r.translation, lang: langOf(s, listener) } : null,
     terms,
+    plain: toPatient && r.plain && s.reading?.plain ? { text: r.plain, lang: langOf(s, 'patient'), kana: !!s.reading.kana } : null,
     note: !toPatient ? r.doctorNote || null : null,
     risk: toPatient && r.risk?.issue ? r.risk : null,
     pending: false,

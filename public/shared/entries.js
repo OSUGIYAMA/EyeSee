@@ -1,10 +1,18 @@
 // How a speech entry reads on each side: the main line is always in the reader's own language,
 // with what was actually said (if it was another language) as a small secondary line.
 
-/** @returns {{ main: string, sub: string, subLang: string|null, pending: boolean }} */
-export function readFor(e, lang) {
+/**
+ * @param {{plain?: boolean}} [o]  plain: prefer the plain-language rewrite (textbook level / hiragana)
+ *   when there is one; the literal translation then becomes the small secondary line.
+ * @returns {{ main: string, sub: string, subLang: string|null, pending: boolean }}
+ */
+export function readFor(e, lang, { plain = false } = {}) {
   const orig = e.orig || { text: '', lang: null };
   const tr = e.tr;
+  if (plain && e.plain?.text && e.plain.lang === lang) {
+    const literal = orig.lang === lang ? orig.text : tr?.lang === lang ? tr.text : '';
+    return { main: e.plain.text, sub: literal, subLang: lang, pending: !!e.pending, translated: true, plain: true };
+  }
   if (orig.lang === lang) return { main: orig.text, sub: tr?.text || '', subLang: tr?.lang || null, pending: !!e.pending, translated: false };
   if (tr?.text && tr.lang === lang) return { main: tr.text, sub: orig.text, subLang: orig.lang, pending: !!e.pending, translated: true };
   // Translation missing (offline or failed): show what we have.

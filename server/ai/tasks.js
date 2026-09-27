@@ -18,6 +18,7 @@ const INTERPRET_FIELDS = {
   translation: S.str("faithful translation into the listener's language"),
   sourceLanguage: S.str('ISO 639-1 code of the language actually spoken'),
   terms: S.arr(TERM),
+  plain: S.nullable(S.str('toPatient only, when requested: the same content rewritten at a school-textbook level (see rules), else null')),
   doctorNote: S.nullable(S.str('toDoctor only: short note on ambiguity or cultural nuance that matters clinically')),
   risk: S.nullable(S.obj({ issue: S.str(), suggestion: S.str() }, 'toPatient only: phrasing that creates consent/liability risk')),
 };
@@ -48,8 +49,21 @@ Decide the direction from the LANGUAGE of the utterance, not from which device r
 4. risk — toPatient only, and only for clinical statements: phrasing that undermines informed consent or creates liability — guarantees ("nothing will go wrong", "100% safe"), minimising material risks, pressure or coercion, or dense jargon with no explanation. issue + a better phrasing, in ${D}. Else null.`;
 };
 
+/** Plain-language rewrite request for this visit (elderly patients, no medical background). */
+function plainRule(state) {
+  const r = state.reading || {};
+  if (!r.plain) return 'plain: always null.';
+  const P = langName(state.patientLang);
+  const kana =
+    r.kana && state.patientLang === 'ja'
+      ? ' Write it the way a first-grade Japanese textbook does: mostly hiragana (katakana for loanwords), only kanji taught in grades 1–2 of elementary school, and a half-width space between phrases (分かち書き).'
+      : '';
+  return `plain: for toPatient utterances, ALSO rewrite the content for a patient with no medical background (for example an elderly person), like a primary- or junior-high-school textbook in ${P}: short sentences, everyday words, one idea per sentence, and explain any medical word in simple words right where it appears. Keep every fact, number, risk and uncertainty; add nothing.${kana} null for toDoctor utterances and for small talk that is already simple.`;
+}
+
 function interpretPrompt(state, { speaker, text, seq }) {
-  return `Recorded by: the ${speaker === 'doctor' ? "doctor's phone" : "patient's headset (hears only the patient)"}
+  return `${plainRule(state)}
+Recorded by: the ${speaker === 'doctor' ? "doctor's phone" : "patient's headset (hears only the patient)"}
 Phase: ${state.mode}
 Already explained terms: ${explainedTerms(state).join(', ') || '(none)'}
 Recent conversation (oldest first):

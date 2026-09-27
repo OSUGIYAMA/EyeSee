@@ -123,6 +123,12 @@ svg { display: block; }
 .ai .src { margin-top: 8px; font-size: 12px; color: var(--label-2); }
 .ai .src a { color: var(--blue); text-decoration: none; }
 
+/* Plain mode: the doctor's words step back; the patient's easy version leads. */
+.row.me.plain .bubble { font-size: 14px; padding: 6px 11px; opacity: 0.85; }
+.reads { max-width: 80%; margin: 6px 4px 0; padding: 10px 13px; border-radius: 16px; background: var(--bg-2); font-size: 17px; line-height: 1.5; color: var(--label); }
+.reads span { display: block; font-size: 12px; font-weight: 600; color: var(--label-2); margin-bottom: 2px; }
+.switch:disabled { opacity: 0.4; }
+
 /* The AI orb is the only gradient in the app: it marks the one voice that isn't a person. */
 .orb { width: 14px; height: 14px; border-radius: 50%; flex: none; background: conic-gradient(from 200deg, #5ac8fa, #af52de, #ff2d55, #ff9500, #5ac8fa); box-shadow: 0 0 10px rgba(175, 82, 222, 0.35); }
 .orb.big { width: 96px; height: 96px; animation: breathe 1.6s ease-in-out infinite, spin 6s linear infinite; }

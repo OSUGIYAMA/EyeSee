@@ -210,11 +210,14 @@ function entryEl(e) {
     const r = readFor(e, S.doctorLang);
     el.className = `row ${me ? 'me' : 'them'}`;
     const main = e.pending && !r.main ? '<span class="typing"><i></i><i></i><i></i></span>' : withTerms(r.main, (e.terms || []).filter((t) => t.audience === 'patient'));
-    const other = readFor(e, S.patientLang).main;
+    const read = readFor(e, S.patientLang, { plain: true });
+    const other = read.main;
     const sub = me ? (other && other !== r.main ? other : '') : r.sub;
+    // Plain mode: the doctor's own words shrink; what the patient actually reads is what matters.
+    if (me && read.plain) el.classList.add('plain');
     const nuance = (e.terms || []).filter((t) => t.audience === 'doctor');
     el.innerHTML = `<div class="bubble ${e.pending ? 'pending' : ''}" data-entry="${e.id}">${main}</div>
-      ${sub ? `<div class="sub">${esc(sub)}</div>` : e.pending && r.main ? '<div class="sub">Translating…</div>' : ''}
+      ${me && read.plain ? `<div class="reads"><span>Patient reads</span>${esc(read.main)}</div>` : sub ? `<div class="sub">${esc(sub)}</div>` : e.pending && r.main ? '<div class="sub">Translating…</div>' : ''}
       ${e.iSee ? `<div class="meta ok">${me ? 'Understood' : 'You understood'}</div>` : e.confused ? `<div class="meta q">${me ? 'Not understood' : 'You asked again'}</div>` : ''}
       ${e.error ? `<div class="meta q">${e.error === 'speech' ? 'Could not process audio' : 'Not translated'}</div>` : ''}
       ${e.note ? `<div class="foot">${esc(e.note)}</div>` : ''}
@@ -551,6 +554,11 @@ function openMore() {
            .join('')}</select></label>
          ${cell('Headset', { val: presence.patient ? 'Connected' : 'Not connected' })}
        </div>
+       <h3>How the patient reads</h3>
+       <div class="group">
+         <label class="cell"><span class="grow">Plain explanations<small>Textbook-level wording for patients without medical background</small></span><input type="checkbox" class="switch" id="plainSw" ${S.reading?.plain ? 'checked' : ''}></label>
+         ${S.patientLang === 'ja' ? `<label class="cell"><span class="grow">Hiragana<small>Mostly kana, spaced like a first-grade textbook</small></span><input type="checkbox" class="switch" id="kanaSw" ${S.reading?.kana ? 'checked' : ''} ${S.reading?.plain ? '' : 'disabled'}></label>` : ''}
+       </div>
        ${presence.patient ? '' : `<div class="group" style="margin-top:10px"><div class="qr"><img src="/api/qr?text=${encodeURIComponent(questUrl)}" alt=""><code>${esc(questUrl)}</code></div></div>`}
        <h3>Microphone</h3>
        <div class="group">
@@ -575,6 +583,12 @@ function openMore() {
 }
 function bindMore() {
   $('#langSel').onchange = (e) => link.send({ type: 'patientLang', lang: e.target.value });
+  const reading = () => ({ type: 'reading', plain: $('#plainSw').checked, kana: !!$('#kanaSw')?.checked });
+  $('#plainSw').onchange = () => {
+    if ($('#kanaSw')) $('#kanaSw').disabled = !$('#plainSw').checked;
+    link.send(reading());
+  };
+  if ($('#kanaSw')) $('#kanaSw').onchange = () => link.send(reading());
   $('#hfSw').onchange = async (e) => {
     pref.handsFree = e.target.checked;
     localStorage.setItem('eyesee.handsfree', pref.handsFree ? '1' : '');

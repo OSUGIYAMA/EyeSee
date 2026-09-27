@@ -406,11 +406,13 @@ function layout(ctx, item, w) {
   if (hit && hit.k === k) return hit;
   let L;
   if (item.type === 'doctor') {
-    const r = readFor(e, lang);
+    const r = readFor(e, lang, { plain: true });
     const main = r.main || '';
-    const sub = r.sub && r.subLang !== lang ? r.sub : '';
+    // Plain mode: the easy version is the main line, the literal translation sits small below it.
+    const sub = r.plain ? r.sub : r.sub && r.subLang !== lang ? r.sub : '';
+    const size = r.plain ? 46 : 42;
     const marks = (e.terms || []).filter((x) => x.audience === 'patient').map((x) => stripReading(x.display));
-    const hMain = main ? paraHeight(ctx, main, w, 42, 600, 1.34) : 42;
+    const hMain = main ? paraHeight(ctx, main, w, size, 600, 1.4) : size;
     const hSub = sub ? paraHeight(ctx, sub, w, 24, 500, 1.35, 3) + 10 : 0;
     const mark = e.iSee ? t('iSee') : e.confused ? t('notSure') : '';
     const h = 32 + hMain + hSub + (mark ? 34 : 0);
@@ -424,8 +426,8 @@ function layout(ctx, item, w) {
         }
         text(c, t('doctor'), x, y, 22, C.text3, 600);
         let cy = y + 32;
-        if (main) cy += para(c, main, x, cy, w, 42, e.pending ? C.text2 : C.text, 600, 1.34, undefined, { mark: marks });
-        else dots(c, x, cy + 12, 14, now(), C.text2), (cy += 42);
+        if (main) cy += para(c, main, x, cy, w, size, e.pending ? C.text2 : C.text, 600, 1.4, undefined, { mark: r.plain ? [] : marks });
+        else dots(c, x, cy + 12, 14, now(), C.text2), (cy += size);
         if (sub) cy += 10 + para(c, sub, x, cy + 6, w, 24, C.text3, 500, 1.35, 3);
         if (mark) text(c, mark, x, cy + 8, 22, e.iSee ? C.green : C.orange, 600);
       },
