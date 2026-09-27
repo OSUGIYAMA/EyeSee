@@ -621,8 +621,8 @@ function openMore() {
        </div>
        <h3>Demo</h3>
        <div class="group">
-         ${cell('Play Next Line', { act: 'demoNext', sub: `Scripted chest-pain visit · ${S.demo.index}/${cfg.demoSteps || '?'}` })}
-         ${cell(S.demo.playing ? 'Pause' : 'Play All', { act: S.demo.playing ? 'demoStop' : 'demoPlay' })}
+         ${cell(S.demo.playing ? 'Pause Demo' : 'Play Demo', { act: S.demo.playing ? 'demoStop' : 'demoStart', sub: 'Two-minute stomach-surgery visit, start to signed consent' })}
+         ${cell('Next Step', { act: 'demoNext', sub: `Step through by hand · ${S.demo.index}/${cfg.demoSteps || '?'}` })}
        </div>
        <button class="btn plain" data-close>Done</button>`,
       draw,
@@ -760,7 +760,7 @@ function setupSig(clear) {
   ctx.lineWidth = 5;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  ctx.strokeStyle = getComputedStyle(document.body).color;
+  ctx.strokeStyle = '#111111';
   sigDirty = false;
   if (clear) ctx.clearRect(0, 0, cv.width, cv.height);
   let last = null;

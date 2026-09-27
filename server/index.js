@@ -143,6 +143,12 @@ const HANDLERS = {
     room.changed();
   },
   demoNext: (room) => P.demoNext(room),
+  demoStart: (room) => {
+    P.demoStop(room);
+    room.newSession();
+    setTimeout(() => P.demoPlay(room), 600);
+  },
+  voiceDone: (room, ws, m) => P.onVoiceDone(room, m.entryId),
   demoPlay: (room) => P.demoPlay(room),
   demoStop: (room) => P.demoStop(room),
   demoReset: (room) => {
@@ -150,7 +156,7 @@ const HANDLERS = {
     room.newSession();
   },
 };
-const DOCTOR_ONLY = new Set(['mode', 'stage', 'consentOpen', 'consentProceed', 'consentCancel', 'newSession', 'patientLang', 'doctorLang', 'reading', 'demoNext', 'demoPlay', 'demoStop', 'demoReset']);
+const DOCTOR_ONLY = new Set(['mode', 'stage', 'consentOpen', 'consentProceed', 'consentCancel', 'newSession', 'patientLang', 'doctorLang', 'reading', 'demoNext', 'demoPlay', 'demoStop', 'demoReset', 'demoStart']);
 
 function attachWS(server) {
   const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 1_000_000 });
@@ -204,6 +210,7 @@ if (config.https) {
     for (const ip of lanAddresses()) console.log(`   on Wi-Fi:   https://${ip}:${config.httpsPort}   (Quest & phone; accept the self-signed certificate once)`);
   });
 }
+P.prewarmDemoVoice();
 const c = caps();
 console.log(`AI: language=${c.llm || 'offline'} · speech=${c.stt || 'browser/offline'} · images=${c.image || 'off'} · understanding judge=${c.judge}`);
 

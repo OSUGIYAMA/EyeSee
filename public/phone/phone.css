@@ -233,7 +233,7 @@ svg { display: block; }
 .omit + .omit::before { content: ''; position: absolute; top: 0; left: 16px; right: 0; border-top: 0.5px solid var(--sep); }
 .omit i { width: 8px; height: 8px; border-radius: 4px; margin-top: 7px; flex: none; background: var(--orange); }
 .omit.critical i { background: var(--red); }
-.sigpad { width: 100%; height: 160px; border-radius: 12px; background: var(--bg-2); display: block; touch-action: none; }
+.sigpad { width: 100%; height: 160px; border-radius: 12px; background: #ffffff; box-shadow: inset 0 0 0 0.5px var(--sep); display: block; touch-action: none; }
 .done { text-align: center; padding: 24px 0 8px; }
 .done .mark { width: 64px; height: 64px; border-radius: 32px; background: var(--green); color: #fff; display: grid; place-items: center; margin: 0 auto 14px; }
 .done h2 { margin: 0; }

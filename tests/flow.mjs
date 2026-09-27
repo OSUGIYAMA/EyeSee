@@ -26,7 +26,7 @@ send(doctor, { type: 'demoReset' });
 await sleep(300);
 const cfg = await (await fetch(`${base}/api/config`)).json();
 const scores = [];
-for (let i = 0; i < cfg.demoSteps; i++) {
+for (let i = 0; i < cfg.demoSteps - 1; i++) { // the last demo step is consent, tested by hand below
   send(doctor, { type: 'demoNext' });
   await until(() => doctor.state?.demo.index === i + 1 && !doctor.state.entries.some((e) => e.pending) && !doctor.state.aiBusy, 60000);
   await sleep(1300); // the judge re-scores ~1 s after each utterance
@@ -36,20 +36,20 @@ await until(() => !doctor.state.understanding.updating, 20000);
 await sleep(1500);
 const s = doctor.state;
 console.log('score trajectory:', scores.join(' '));
-check(s.entries.filter((e) => e.kind === 'speech').length >= 20, `minutes have ${s.entries.length} entries`);
+check(s.entries.filter((e) => e.kind === 'speech').length >= 8, `minutes have ${s.entries.filter((e) => e.kind === 'speech').length} spoken lines`);
 check(patient.state.entries.length === s.entries.length, 'patient sees the same minutes');
 const firstConsent = scores.findIndex((x, i) => i > 0 && x > 0);
 const thr = cfg.caps.consentThreshold;
-const altIdx = s.entries.findIndex((e) => e.kind === 'speech' && /alternatives/i.test(e.orig.text));
+const altIdx = s.entries.findIndex((e) => e.kind === 'speech' && /other options|alternatives/i.test(e.orig.text));
 check(altIdx > 0 && Math.max(...s.understanding.history.filter((h) => Date.parse(h.ts) < Date.parse(s.entries[altIdx].ts)).map((h) => h.score)) < thr, `score stays below ${thr} until alternatives are discussed`);
 check(s.understanding.score >= thr, `final understanding ${s.understanding.score}/10 (judge: ${s.understanding.source})`);
 check(s.entries.some((e) => e.kind === 'ai' && e.ai.omissions?.some((o) => /alternative/i.test(o.doctor))), 'AI check flagged missing alternatives');
-check(s.symptoms?.length === 2 && s.symptoms.every((x) => x.region && x.quality && x.intensity != null), 'symptoms recorded as where + how + how much');
-check(s.entries.some((e) => e.kind === 'event' && e.event.type === 'symptom' && e.event.quality === 'shimetsuke'), 'symptom appears in the minutes');
+check(s.symptoms?.length === 1 && s.symptoms.every((x) => x.region && x.quality && x.intensity != null), 'symptom recorded as where + how + how much');
+check(s.entries.some((e) => e.kind === 'event' && e.event.type === 'symptom' && e.event.quality === 'shikushiku'), 'symptom appears in the minutes');
 
 send(doctor, { type: 'consentOpen' });
 await until(() => doctor.state.consent?.status === 'precheck', 60000);
-check(doctor.state.consent?.checkpoints.length >= 5, `consent has ${doctor.state.consent?.checkpoints.length} checkpoints`);
+check(doctor.state.consent?.checkpoints.length >= 5, `consent summary has ${doctor.state.consent?.checkpoints.length} points`);
 check(doctor.state.entries.some((e) => e.kind === 'ai' && e.ai.from === 'system'), 'final check posted into the chat for both sides');
 send(doctor, { type: 'consentProceed', acknowledge: true });
 await until(() => patient.state.consent?.status === 'quiz');

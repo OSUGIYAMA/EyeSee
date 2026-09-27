@@ -1244,6 +1244,7 @@ async function playNext() {
   try {
     await speakText(item);
   } catch {}
+  link.send({ type: 'voiceDone', entryId: item.id });
   if (wasOn && micOn) setTimeout(() => rec.setListening(true).catch(() => {}), 350);
   speakingNow = false;
   playNext();

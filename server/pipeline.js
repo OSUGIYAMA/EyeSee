@@ -9,7 +9,8 @@ import { transcribe } from './ai/openai.js';
 import { makeImage } from './ai/images.js';
 import { assess } from './ai/judge.js';
 import { offlineConsentPackage, offlineMediator, offlineHelp, RIGHTS_CHECKPOINT } from './ai/offline.js';
-import { DEMO_STEPS, DEMO_CONSENT } from './demo/script.js';
+import { DEMO_STEPS, DEMO_CONSENT, DEMO_AI, DEMO_SIGNATURES } from './demo/script.js';
+import { speak, canSpeak } from './ai/tts.js';
 import { newUnderstanding } from './room.js';
 import { prewarm } from './i18n.js';
 
@@ -498,7 +499,7 @@ export async function askAIAudio(room, role, audio) {
   return askAI(room, role, question, room.entry(entry.id));
 }
 
-export async function askAI(room, role, question, spoken = null) {
+export async function askAI(room, role, question, spoken = null, canned = null) {
   const s = room.state;
   question = String(question || '').trim().slice(0, 1000);
   if (!question) return;
@@ -514,7 +515,7 @@ export async function askAI(room, role, question, spoken = null) {
   room.changed(false);
   let r;
   try {
-    r = llmProvider() ? await mediate(s, { from: role, question }) : offlineMediator(s, { question });
+    r = canned || (llmProvider() ? await mediate(s, { from: role, question }) : offlineMediator(s, { question }));
   } catch (err) {
     console.warn('[ai] mediator failed:', err.message);
     r = offlineMediator(s, { question });
@@ -572,7 +573,7 @@ export async function openConsent(room, { force = false } = {}) {
   room.changed();
   let pkg;
   try {
-    if (s.demo.used && !llmProvider()) pkg = DEMO_CONSENT;
+    if (s.demo.used && !demoLive()) pkg = DEMO_CONSENT;
     else pkg = llmProvider() ? await consentPackage(s) : offlineConsentPackage(s);
   } catch (err) {
     console.warn('[consent] package failed:', err.message);
@@ -703,41 +704,112 @@ export function sign(room, role, dataUrl) {
 
 // ---------------------------------------------------------------- demo player
 
+const demoLive = () => process.env.EYESEE_DEMO_LIVE === '1' && !!llmProvider();
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const headsetOn = (room) => [...room.clients].some((c) => c.role === 'patient' && c.readyState === 1);
+
+/** Wait until the headset reports it finished reading an entry aloud (or a timeout). */
+function voiceDone(room, entryId, ms) {
+  return new Promise((resolve) => {
+    room.voiceWaiters ||= new Map();
+    const t = setTimeout(() => (room.voiceWaiters.delete(entryId), resolve(false)), ms);
+    room.voiceWaiters.set(entryId, () => (clearTimeout(t), room.voiceWaiters.delete(entryId), resolve(true)));
+  });
+}
+export function onVoiceDone(room, entryId) {
+  room.voiceWaiters?.get(entryId)?.();
+}
+
+async function until(fn, ms = 20000) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < ms) {
+    if (fn()) return true;
+    await sleep(120);
+  }
+  return false;
+}
+
+/** Run one demo step. `paced`: wait the way a presenter would (auto-play). */
+async function runDemoStep(room, step, paced) {
+  const s = room.state;
+  if (step.speaker) {
+    const canned = { translation: step.tr, sourceLanguage: langOf(s, step.speaker), terms: step.terms || [], doctorNote: step.note || null, risk: null };
+    const entry = await speechText(room, step.speaker, step.text, demoLive() ? 'demo' : 'demo-offline', canned);
+    if (!paced || !entry) return;
+    await until(() => !room.entry(entry.id)?.pending, 15000);
+    if (step.speaker === 'doctor') {
+      // Let the patient hear it: wait for the headset's read-aloud, else a reading pause.
+      const voiced = headsetOn(room) && s.reading?.voice !== false;
+      if (!voiced || !(await voiceDone(room, entry.id, 16000))) await sleep(Math.min(7000, 1400 + (step.tr || '').length * 60));
+      await sleep(700);
+    } else await sleep(Math.min(5200, 1600 + (step.tr || '').length * 32));
+    return;
+  }
+  if (step.do === 'stage') setStage(room, step.stage);
+  else if (step.do === 'symptom') {
+    symptomPoint(room, step.region, step.point);
+    await sleep(paced ? 900 : 0);
+    symptomQuality(room, null, step.quality);
+    await sleep(paced ? 900 : 0);
+    symptomIntensity(room, null, step.intensity);
+    symptomDone(room);
+    if (paced) {
+      await sleep(step.wait || 2500);
+      setStage(room, null);
+    }
+    return;
+  } else if (step.do === 'model') showModel(room, step);
+  else if (step.do === 'confused') await confused(room, 'patient');
+  else if (step.do === 'isee') iSee(room, 'patient');
+  else if (step.do === 'feeling') feeling(room, step.id);
+  else if (step.do === 'ai') await askAI(room, step.from, step.question, null, demoLive() ? null : DEMO_AI);
+  else if (step.do === 'consent') return runDemoConsent(room, paced);
+  if (paced && step.wait) await sleep(step.wait);
+}
+
+/** The consent step, start to finish: final check, the 3 questions, both signatures. */
+async function runDemoConsent(room, paced) {
+  const s = room.state;
+  const p = (ms) => (paced ? sleep(ms) : null);
+  setStage(room, null);
+  await openConsent(room, { force: true });
+  await until(() => s.consent?.status === 'precheck', 30000);
+  await p(2600);
+  consentProceed(room, { acknowledgeOmissions: true });
+  await p(1600);
+  for (const q of s.consent?.quiz || []) {
+    await p(1400);
+    consentAnswer(room, q.id, q.answer);
+    await p(1200);
+  }
+  await until(() => s.consent?.status === 'signing', 5000);
+  await p(1800);
+  sign(room, 'patient', DEMO_SIGNATURES.patient);
+  await p(1300);
+  sign(room, 'doctor', DEMO_SIGNATURES.doctor);
+}
+
 export async function demoNext(room) {
   const s = room.state;
   if (s.demo.index >= DEMO_STEPS.length) return false;
   const step = DEMO_STEPS[s.demo.index++];
   s.demo.used = true;
   room.changed(false);
-  if (step.speaker) {
-    const canned = { translation: step.tr, sourceLanguage: langOf(s, step.speaker), terms: step.terms || [], doctorNote: step.note || null, risk: null };
-    // With AI configured, demo lines go through the live pipeline; otherwise use the pre-written interpretation.
-    await speechText(room, step.speaker, step.text, llmProvider() ? 'demo' : 'demo-offline', canned);
-  } else if (step.do === 'mode') setMode(room, step.mode);
-  else if (step.do === 'stage') setStage(room, step.stage);
-  else if (step.do === 'symptom') {
-    symptomPoint(room, step.region, step.point);
-    symptomQuality(room, null, step.quality);
-    symptomIntensity(room, null, step.intensity);
-    symptomDone(room);
-  } else if (step.do === 'model') showModel(room, step);
-  else if (step.do === 'confused') await confused(room, 'patient');
-  else if (step.do === 'isee') iSee(room, 'patient');
-  else if (step.do === 'feeling') feeling(room, step.id);
-  else if (step.do === 'ai') await askAI(room, step.from, step.question);
+  await runDemoStep(room, step, false);
   return s.demo.index < DEMO_STEPS.length;
 }
 
-export async function demoPlay(room, delay = 2600) {
+export async function demoPlay(room) {
   const s = room.state;
   if (s.demo.playing) return;
   s.demo.playing = true;
+  s.demo.used = true;
   room.changed(false);
   const sessionId = s.sessionId;
-  while (room.state.demo.playing && room.state.sessionId === sessionId) {
-    const more = await demoNext(room);
-    if (!more) break;
-    await new Promise((r) => setTimeout(r, delay));
+  while (room.state.demo.playing && room.state.sessionId === sessionId && s.demo.index < DEMO_STEPS.length) {
+    const step = DEMO_STEPS[s.demo.index++];
+    room.changed(false);
+    await runDemoStep(room, step, true);
   }
   room.state.demo.playing = false;
   room.changed(false);
@@ -749,3 +821,9 @@ export const demoStop = (room) => {
 };
 
 export const demoLength = () => DEMO_STEPS.length;
+
+/** Pre-generate the headset's voice for the demo lines, so the first run is as smooth as the rest. */
+export async function prewarmDemoVoice() {
+  if (!canSpeak()) return;
+  for (const step of DEMO_STEPS) if (step.speaker === 'doctor' && step.tr) await speak(step.tr, 'ja').catch(() => {});
+}

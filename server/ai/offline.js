@@ -2,14 +2,14 @@
 import { CONSENT_ELEMENTS } from '../../public/shared/catalog.js';
 
 const RX = {
-  diagnosis: /(diagnos|your (tests?|ecg|results?|scan)|shows?|narrow|block|disease|condition|angina|you have)/i,
+  diagnosis: /(diagnos|your (tests?|ecg|results?|scan)|shows?|narrow|block|disease|condition|angina|tumou?r|you have)/i,
   procedure: /(procedure|surgery|operation|catheter|stent|insert|\bpci\b|biopsy|we (will|would|can) (put|place|do|remove|thread))/i,
-  benefits: /(benefit|improve|reliev|help (you|your)|reduce (the |your )?(risk|pain)|should (get|feel) better|goal)/i,
+  benefits: /(benefit|improve|reliev|help (you|your)|reduce (the |your )?(risk|pain)|should (get|feel) better|goal|chance of a cure|cure)/i,
   risks: /(risk|complication|bleed|infection|side effect|damage|allerg|stroke|heart attack|\d+ in \d+|percent)/i,
   alternatives: /(alternative|other option|instead|medications? alone|medicines? alone|bypass|another (way|option)|non-?surgical)/i,
-  noTreatment: /(do nothing|no treatment|decline|choose not|not to have|without (any )?(treatment|procedure)|refuse)/i,
+  noTreatment: /(do nothing|no treatment|no surgery|decline|choose not|not to have|without (any )?(treatment|procedure|surgery)|refuse)/i,
   anesthesia: /(anesthe|anaesthe|sedat|numb|put you to sleep|you'll be awake|asleep)/i,
-  recovery: /(recover|go home|hospital stay|follow-?up|after the procedure|return to|normal activit)/i,
+  recovery: /(recover|go home|hospital stay|follow-?up|after the (procedure|surgery)|return to|normal activit|eat normally|small meals)/i,
   questions: /(any questions|what questions|questions\?|feel free to ask|ask me anything)/i,
 };
 const TEACH_BACK = /(own words|explain (it |that )?back|tell me what (we|you)|repeat (it )?back|in your words)/i;
