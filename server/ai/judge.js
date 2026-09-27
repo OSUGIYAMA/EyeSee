@@ -47,14 +47,18 @@ export function openConcerns(state) {
  */
 export function applyCaps(raw, elements, comprehension, concerns) {
   const ok = (id) => elements[id] === 'explained' || elements[id] === 'notApplicable';
+  const said = (id) => ok(id) || elements[id] === 'mentioned';
   const touched = ELEMENT_IDS.some((id) => elements[id] === 'explained' || elements[id] === 'mentioned');
+  // A bare "I agree" can never unlock consent, but a normal, good-faith explanation should.
   const rules = [
     [!touched, 0, 'nothing has been explained yet'],
-    [!ok('procedure') || !ok('risks'), 3, 'the procedure and its risks must be explained'],
-    [comprehension === 'none' || comprehension === 'claimed', 4, 'the patient has not shown understanding'],
-    [!CORE.every(ok), 6, `not yet explained: ${CORE.filter((id) => !ok(id)).join(', ')}`],
-    [comprehension !== 'demonstrated', 6, 'no teach-back yet'],
+    [!said('procedure') || !said('risks'), 3, 'the procedure and its risks must be discussed'],
+    [!ok('procedure') || !ok('risks'), 5, 'the procedure and its risks need a clearer explanation'],
+    [comprehension === 'none' || comprehension === 'claimed', 5, 'the patient has not shown understanding yet'],
+    [!CORE.every(said), 6, `not yet discussed: ${CORE.filter((id) => !said(id)).join(', ')}`],
     [concerns > 0, 6, 'a patient concern is unresolved'],
+    [!CORE.every(ok), 7, `only mentioned briefly: ${CORE.filter((id) => !ok(id)).join(', ')}`],
+    [comprehension === 'partial', 8, 'the patient has not explained it back yet'],
   ].filter(([hit]) => hit);
   const cap = Math.min(10, ...rules.map(([, c]) => c));
   const capReasons = rules.filter(([, c]) => c === cap).map(([, , why]) => why);
@@ -133,7 +137,6 @@ async function jevAssess(state, concerns) {
       },
     },
     unresolved: { type: 'noul', instructions: 'Does the patient have a question, confusion or worry that the doctor has not addressed yet?', criteria: { true: 'An open patient question, "I don\'t understand" flag or worry has not been answered', false: 'All patient questions and worries have been addressed, or none were raised' } },
-    risky: { type: 'noul', instructions: 'Did the doctor guarantee an outcome, minimise real risks, or pressure the patient to agree?' },
   };
   for (const [id, q] of Object.entries(JEV_ELEMENT_Q)) questions[`el_${id}`] = { type: 'noul', instructions: q };
 
@@ -158,18 +161,19 @@ async function jevAssess(state, concerns) {
   const elements = {};
   for (const id of ELEMENT_IDS) {
     const p = answers[`el_${id}`]?.noul ?? 0;
-    elements[id] = p >= 0.5 ? 'explained' : p >= 0.25 ? 'mentioned' : 'missing';
+    elements[id] = p >= 0.4 ? 'explained' : p >= 0.18 ? 'mentioned' : 'missing';
   }
   const level = answers.understanding?.score ?? 0; // 0–9, expected value over the levels
   const comprehension = answers.comprehension?.choice || 'none';
-  let raw = level;
-  if (level >= 8.5 && comprehension === 'demonstrated' && ELEMENT_IDS.every((id) => elements[id] === 'explained')) raw = 10;
+  // JEV's 10 levels are 0–9; spread them over the 0–10 display.
+  let raw = (level * 10) / 9;
+  if (level >= 8.3 && comprehension === 'demonstrated') raw = 10;
   return {
     raw,
     elements,
     comprehension,
-    engineConcern: (answers.unresolved?.noul ?? 0) >= 0.5,
-    risky: (answers.risky?.noul ?? 0) >= 0.6 ? ['The doctor may have guaranteed an outcome, minimised a risk or pressured the patient.'] : [],
+    engineConcern: (answers.unresolved?.noul ?? 0) >= 0.6,
+    risky: [],
     detail: { level, confidence: answers.understanding?.confidence, probabilities: answers.understanding?.probabilities },
   };
 }
@@ -189,8 +193,8 @@ async function llmAssess(state) {
     system: `You are the shared-understanding judge in EyeSee, used during informed consent between a doctor and a patient who speak different languages (the patient reads machine translations). Score 0–10 how well informed consent is actually achieved so far — NOT whether the patient said yes.
 Element status: missing (not mentioned) / mentioned (named, not explained for a layperson) / explained (clear: what, why, what it means for the patient; risks with rough likelihood; alternatives incl. non-surgical and no treatment) / notApplicable.
 Comprehension: none / claimed (only yes, OK, はい, "I agree") / partial (relevant questions or partial restatement) / demonstrated (teach-back of what, why, main risks).
-unresolvedConcerns: patient questions, "didn't understand" flags or worried feelings not yet addressed. riskyStatements: doctor guarantees, minimisation or pressure.
-Scale: 0 nothing explained (even if the patient agrees); 1–2 procedure mentioned; 3–4 procedure + some risks, no understanding shown; 5–6 most elements, partial understanding; 7 nearly complete but alternatives missing or a concern open; 8 all core elements + teach-back + no open concerns; 9–10 exemplary.`,
+unresolvedConcerns: patient questions, "didn't understand" flags or worried feelings not yet addressed. riskyStatements: only a concrete false guarantee about a procedure (e.g. "100% safe"); encouragement and reassurance are good care, never list them.
+Scale: 0 nothing explained (even if the patient agrees); 1–2 procedure mentioned; 3–4 procedure + some risks, no understanding shown; 5–6 most elements, some understanding; 7 all core elements discussed, the patient shows real understanding (relevant questions answered or partial restatement) and nothing is left open — ready for consent; 8 the same plus a teach-back; 9–10 exemplary.`,
     prompt: `Conversation:\n${formatTranscript(state)}`,
     schema: LLM_SCHEMA,
     effort: 'medium',

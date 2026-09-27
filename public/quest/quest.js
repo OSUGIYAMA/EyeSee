@@ -311,6 +311,11 @@ class Scroller {
   }
   step(dt) {
     if (this.drag) return true;
+    if (this.settle) {
+      this.y += (0 - this.y) * Math.min(1, dt * 7);
+      if (Math.abs(this.y) < 0.5) (this.y = 0), (this.settle = false);
+      return true;
+    }
     let moving = false;
     if (Math.abs(this.v) > 5) {
       this.y += this.v * dt;
@@ -327,6 +332,11 @@ class Scroller {
   toStart() {
     this.v = -Math.max(1500, this.y * 6);
   }
+  /** Keep the view where it was, then ease to the newest line (content glides up instead of jumping). */
+  glide(dy) {
+    this.y += dy;
+    this.settle = true;
+  }
 }
 const convScroll = new Scroller(true);
 const glossScroll = new Scroller(false);
@@ -334,6 +344,7 @@ const glossScroll = new Scroller(false);
 // ================================================================ state
 
 link.on('state', (s) => {
+  if (!S) for (const e of s.entries) spokenIds.add(e.id); // never read out old history
   if (S && S.sessionId !== s.sessionId) {
     convScroll.y = 0;
     selected = null;
@@ -345,6 +356,7 @@ link.on('state', (s) => {
   caps = s.caps || caps;
   loadPack(s.patientLang);
   invalidate();
+  maybeSpeak();
 });
 link.on('presence', (m) => {
   presence = m.roles;
@@ -499,6 +511,8 @@ function drawConversation() {
   const gaps = items.map((it, i) => (i === 0 ? 0 : it.type === 'caption' || items[i - 1].type === 'caption' ? 22 : 34));
   const total = hs.reduce((a, b) => a + b, 0) + gaps.reduce((a, b) => a + b, 0);
   convScroll.max = Math.max(0, total - (bottom - top));
+  if (total > convTotal && convScroll.y < 2 && !convScroll.drag) convScroll.glide(total - convTotal);
+  convTotal = total;
   const n = now();
   let animating = false;
   conv.draw((c, p) => {
@@ -547,6 +561,8 @@ function drawConversation() {
   });
   return animating;
 }
+
+let convTotal = 0;
 
 function select(id) {
   selected = selected === id ? null : id;
@@ -766,10 +782,10 @@ function drawSheet() {
       title(t('feelingsTitle'), 44);
       button(p, W - X - 150, 36, 150, 60, t('done'), () => (localFeelings ? ((localFeelings = false), invalidate()) : link.send({ type: 'openTool', tool: 'feelings' })), { id: 'done', size: 24 });
       const chosen = new Set([...(st?.tool === 'feelings' ? st.selected || [] : []), ...recentFeelings()]);
-      const cols = 4, gw = (W - X * 2 - (cols - 1) * 14) / cols, gh = 62;
+      const cols = 3, gw = (W - X * 2 - (cols - 1) * 14) / cols, gh = 64, gap = 12;
       FEELINGS.forEach((f, i) => {
-        const x = X + (i % cols) * (gw + 14), y = 120 + Math.floor(i / cols) * (gh + 14);
-        button(p, x, y, gw, gh, tk(`feeling.${f.id}`, f.en), () => link.send({ type: 'feeling', id: f.id }), { id: `f:${f.id}`, size: 23, selected: chosen.has(f.id) });
+        const x = X + (i % cols) * (gw + 14), y = 112 + Math.floor(i / cols) * (gh + gap);
+        button(p, x, y, gw, gh, tk(`feeling.${f.id}`, f.en), () => link.send({ type: 'feeling', id: f.id }), { id: `f:${f.id}`, size: 24, selected: chosen.has(f.id) });
       });
       return;
     }
@@ -1023,6 +1039,55 @@ async function toggleMic() {
   invalidate();
 }
 
+// ================================================================ read aloud (the doctor's words, in the patient's language)
+
+const spokenIds = new Set();
+const speakQueue = [];
+let speakingNow = false;
+function maybeSpeak() {
+  for (const e of S.entries) {
+    if (e.kind !== 'speech' || e.speaker !== 'doctor' || e.pending || spokenIds.has(e.id)) continue;
+    spokenIds.add(e.id);
+    if (!S.reading?.voice || Date.now() - Date.parse(e.ts) > 20000) continue;
+    const text = readFor(e, S.patientLang, { plain: true }).main;
+    if (text) speakQueue.push({ id: e.id, text });
+  }
+  if (!speakingNow) playNext();
+}
+async function playNext() {
+  const item = speakQueue.shift();
+  if (!item) return;
+  speakingNow = true;
+  // The headset mic would hear its own speaker: pause listening while talking.
+  const wasOn = micOn;
+  if (wasOn) await rec.setListening(false).catch(() => {});
+  try {
+    await speakText(item);
+  } catch {}
+  if (wasOn && micOn) setTimeout(() => rec.setListening(true).catch(() => {}), 350);
+  speakingNow = false;
+  playNext();
+}
+function speakText(item) {
+  const lang = S.patientLang;
+  const voice = 'speechSynthesis' in window ? speechSynthesis.getVoices().find((v) => v.lang?.toLowerCase().startsWith(lang)) : null;
+  if (voice)
+    return new Promise((resolve) => {
+      const u = new SpeechSynthesisUtterance(item.text);
+      u.voice = voice;
+      u.lang = voice.lang;
+      u.rate = S.reading?.plain ? 0.9 : 1;
+      u.onend = u.onerror = resolve;
+      speechSynthesis.speak(u);
+    });
+  // No local voice for this language: the server speaks it (Gemini TTS).
+  return new Promise((resolve) => {
+    const a = new Audio(`/api/tts?room=${encodeURIComponent(room)}&entry=${item.id}`);
+    a.onended = a.onerror = resolve;
+    a.play().catch(resolve);
+  });
+}
+
 // ================================================================ microphone & AI
 
 let aiHolding = false;
@@ -1075,7 +1140,7 @@ let stageTarget = null;
 let stageHolder = null;
 let stageLabel = null;
 let loadToken = 0;
-let targetYaw = 0, targetPitch = 0;
+let targetYaw = 0, targetPitch = 0, targetZoom = 1, zoomNow = 1;
 
 function clearStage() {
   if (stageObj) {
@@ -1122,6 +1187,8 @@ function syncStage() {
         else {
           stageHolder = fitHolder(stageObj.object, { artery: 0.62, liver: 0.5, stomach: 0.5 }[id] || 0.42);
           const s = stageHolder.scale.x;
+          stageHolder.userData.base = s;
+          zoomNow = 1;
           stageHolder.scale.setScalar(s * 0.6);
           stageAnchor.add(stageHolder);
           tween(stageHolder.scale, { x: s, y: s, z: s }, 480);
@@ -1159,6 +1226,7 @@ function applyStage(st) {
     }
     targetYaw = st.yaw || 0;
     targetPitch = st.pitch || 0;
+    targetZoom = st.zoom || 1;
     // A capsule names the model or the touched part; a small glass card explains the part.
     const label = st.highlight ? tk(`part.${st.modelId}.${st.highlight}.label`, st.highlight) : tk(`model.${st.modelId}`, '');
     if (stageLabel?.label !== label) {
@@ -1303,6 +1371,10 @@ function frame() {
     if (stageHolder) {
       stageHolder.rotation.y += (targetYaw - stageHolder.rotation.y) * 0.12;
       stageHolder.rotation.x += (targetPitch - stageHolder.rotation.x) * 0.12;
+      if (stageHolder.userData.base && !tweens.size) {
+        zoomNow += (targetZoom - zoomNow) * 0.12;
+        stageHolder.scale.setScalar(stageHolder.userData.base * zoomNow);
+      }
     }
   }
   if (painGrid.visible && painOrbs) for (const o of painOrbs) if (o.g.visible) o.viz?.update(dt, n);

@@ -308,7 +308,7 @@ function symText(s, sym) {
     patient: `${L(sym.region.label, s.patientLang)}${p ? ` — ${p.ja}` : ''}${lv}`,
   };
 }
-const symEvent = (sym) => ({ symptom: sym.id, region: sym.region, quality: sym.quality, intensity: sym.intensity });
+const symEvent = (sym) => ({ symptom: sym.id, region: sym.region, point: sym.point, quality: sym.quality, intensity: sym.intensity });
 
 function touchSymptom(room, sym) {
   const s = room.state;

@@ -51,6 +51,8 @@ export const config = {
   googleLocation: env.GOOGLE_CLOUD_LOCATION || 'global',
   geminiModel: env.GEMINI_MODEL || 'gemini-3.6-flash',
   geminiImageModel: env.GEMINI_IMAGE_MODEL || 'gemini-2.5-flash-image',
+  ttsModel: env.GEMINI_TTS_MODEL || 'gemini-2.5-flash-tts',
+  ttsVoice: env.GEMINI_TTS_VOICE || 'Kore',
 
   // OpenAI: optional alternative for speech-to-text / images / text.
   openai: !!env.OPENAI_API_KEY,
@@ -88,6 +90,7 @@ export const caps = () => ({
   llm: llmProvider(),
   stt: sttProvider(),
   image: imageProvider(),
+  tts: config.google,
   webSearch: (config.anthropic && config.webSearch) || config.google,
   judge: judgeProvider(),
   consentThreshold: config.consentThreshold,

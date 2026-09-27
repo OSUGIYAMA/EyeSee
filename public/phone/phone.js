@@ -105,6 +105,14 @@ $('#consentBtn').onclick = () => {
 
 // ---------------------------------------------------------------- the patient's symptom map
 
+/** A tiny front-view body with a dot where it hurts (3D body coordinates → 2D). */
+function silhouette(point, intensity) {
+  const [x, y, z] = point || [0, -1, 0];
+  const cx = 30 + x * 56, cy = 118 - (y / 1.72) * 110;
+  const dot = y >= 0 ? `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="4.2" class="dot ${level(intensity)} ${z < -0.02 ? 'back' : ''}"/>` : '';
+  return `<svg class="sil" viewBox="0 0 60 122" aria-hidden="true"><g class="fig"><circle cx="30" cy="12" r="7.5"/><path d="M30 20v4"/><rect x="21" y="24" width="18" height="38" rx="7"/><path d="M22 28 12 58M38 28 48 58M26 60l-2 56M34 60l2 56"/></g>${dot}</svg>`;
+}
+
 const level = (v) => (v == null ? '' : v >= 7 ? 'l3' : v >= 4 ? 'l2' : 'l1');
 function renderSymptoms() {
   const list = S.symptoms || [];
@@ -176,7 +184,7 @@ function renderFeed() {
     if (n && n.key === key) continue;
     const el = entryEl(e);
     if (n) n.el.replaceWith(el);
-    else feed.insertBefore(el, nodes.get('typing')?.el || null);
+    else el.classList.add('enter'), feed.insertBefore(el, nodes.get('typing')?.el || null);
     nodes.set(e.id, { el, key });
   }
   // The patient is talking right now: a typing bubble, like Messages.
@@ -188,7 +196,13 @@ function renderFeed() {
     feed.append(el);
     nodes.set('typing', { el });
   } else if (!S.speaking?.patient && typing) typing.el.remove(), nodes.delete('typing');
-  if (follow) feed.scrollTop = feed.scrollHeight;
+  if (follow) glideToEnd();
+}
+
+// New messages push the list up with a smooth glide instead of a jump.
+function glideToEnd() {
+  if (feed.scrollHeight - feed.scrollTop - feed.clientHeight < 2) return;
+  feed.scrollTo({ top: feed.scrollHeight, behavior: 'smooth' });
 }
 
 function withTerms(text, terms) {
@@ -236,6 +250,16 @@ function entryEl(e) {
       ${a.sources?.length ? `<div class="src">${a.sources.map((s) => `<a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.title)}</a>`).join(' · ')}</div>` : ''}`;
     return el;
   }
+  if (e.kind === 'event' && e.event.type === 'symptom') {
+    const ev = e.event;
+    const p = PAIN_TYPES.find((x) => x.id === ev.quality);
+    el.className = 'sym-card';
+    el.innerHTML = `${silhouette(ev.point || (S.symptoms || []).find((x) => x.id === ev.symptom)?.point, ev.intensity)}
+      <div class="grow"><b>${esc(ev.region?.label?.en || '')}</b><span>${p ? `${esc(p.en)} · ${esc(p.ja)}` : 'Choosing how it feels…'}</span></div>
+      <div class="lv ${level(ev.intensity)}">${ev.intensity ?? '–'}</div>`;
+    el.onclick = () => openSymptoms();
+    return el;
+  }
   el.className = 'caption';
   el.innerHTML = `${esc(e.text?.doctor)}${e.help?.doctorSuggestion ? `<div class="foot help" style="text-align:left;margin:6px auto 0">Try: ${esc(e.help.doctorSuggestion)}</div>` : ''}`;
   return el;
@@ -255,7 +279,7 @@ function ensureViewer(body) {
     body.innerHTML = '<canvas class="viewer"></canvas><div class="extra"></div>';
     viewer?.stop();
     viewer = new Viewer(body.querySelector('canvas'), {
-      onRotate: (yaw, pitch) => link.send({ type: 'modelView', yaw, pitch }),
+      onRotate: (yaw, pitch, zoom) => link.send({ type: 'modelView', yaw, pitch, zoom }),
       onPick: ({ part, local, mesh }) => {
         const st = S.stage;
         if (st?.tool === 'body' && local && viewer.current?.regionAt) {
@@ -317,7 +341,7 @@ function renderStage() {
       const sig = pts.flat().join(',');
       if (pts.length && obj._focus !== sig) (obj._focus = sig), viewer.focus(pts);
     }
-    if (st.viewBy !== 'doctor') viewer.setView(st.yaw || 0, st.pitch || 0);
+    if (st.viewBy !== 'doctor') viewer.setView(st.yaw || 0, st.pitch || 0, st.zoom || 1);
     if (st.tool === 'model' && !obj.meta?.steps?.length) {
       const sig = `${id}:${st.highlight}`;
       if (extra.dataset.sig !== sig) {
@@ -370,10 +394,13 @@ function setTalkLabel() {
 }
 setTalkLabel();
 
-// Hold to talk (default): nothing is recorded unless the doctor is pressing.
-talk.addEventListener('pointerdown', async (e) => {
+// Hold to talk (default): nothing is recorded unless the doctor is pressing — the button or Space.
+talk.addEventListener('pointerdown', (e) => {
   talk.setPointerCapture(e.pointerId);
-  if (pref.handsFree) return;
+  talkDown();
+});
+async function talkDown() {
+  if (pref.handsFree || holding) return;
   holding = true;
   talk.classList.add('active');
   setTalkLabel();
@@ -384,6 +411,18 @@ talk.addEventListener('pointerdown', async (e) => {
   } catch (err) {
     toast(err.message || 'Microphone unavailable', 'attn');
   }
+}
+const typing = () => /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName);
+addEventListener('keydown', (e) => {
+  if (e.code !== 'Space' || typing() || e.repeat || !$('#sheet').hidden) return;
+  e.preventDefault();
+  if (pref.handsFree) talkUp();
+  else talkDown();
+});
+addEventListener('keyup', (e) => {
+  if (e.code !== 'Space' || typing() || pref.handsFree) return;
+  e.preventDefault();
+  talkUp();
 });
 const talkUp = async () => {
   if (pref.handsFree) {
@@ -557,6 +596,7 @@ function openMore() {
        <h3>How the patient reads</h3>
        <div class="group">
          <label class="cell"><span class="grow">Plain explanations<small>Textbook-level wording for patients without medical background</small></span><input type="checkbox" class="switch" id="plainSw" ${S.reading?.plain ? 'checked' : ''}></label>
+         <label class="cell"><span class="grow">Read aloud in the headset<small>Your words, spoken in the patient's language</small></span><input type="checkbox" class="switch" id="voiceSw" ${S.reading?.voice ? 'checked' : ''}></label>
          ${S.patientLang === 'ja' ? `<label class="cell"><span class="grow">Hiragana<small>Mostly kana, spaced like a first-grade textbook</small></span><input type="checkbox" class="switch" id="kanaSw" ${S.reading?.kana ? 'checked' : ''} ${S.reading?.plain ? '' : 'disabled'}></label>` : ''}
        </div>
        ${presence.patient ? '' : `<div class="group" style="margin-top:10px"><div class="qr"><img src="/api/qr?text=${encodeURIComponent(questUrl)}" alt=""><code>${esc(questUrl)}</code></div></div>`}
@@ -583,7 +623,8 @@ function openMore() {
 }
 function bindMore() {
   $('#langSel').onchange = (e) => link.send({ type: 'patientLang', lang: e.target.value });
-  const reading = () => ({ type: 'reading', plain: $('#plainSw').checked, kana: !!$('#kanaSw')?.checked });
+  const reading = () => ({ type: 'reading', plain: $('#plainSw').checked, kana: !!$('#kanaSw')?.checked, voice: $('#voiceSw').checked });
+  $('#voiceSw').onchange = () => link.send(reading());
   $('#plainSw').onchange = () => {
     if ($('#kanaSw')) $('#kanaSw').disabled = !$('#plainSw').checked;
     link.send(reading());

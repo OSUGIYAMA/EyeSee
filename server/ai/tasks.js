@@ -46,7 +46,7 @@ Decide the direction from the LANGUAGE of the utterance, not from which device r
 
 3. doctorNote — toDoctor only: when the patient's words are ambiguous or culturally loaded in a way that changes clinical meaning or consent (e.g. Japanese 「はい」 can mean "I'm listening", not "I agree"; hedged refusals like 「ちょっと…」; understated pain). One sentence in ${D}, else null.
 
-4. risk — toPatient only, and only for clinical statements: phrasing that undermines informed consent or creates liability — guarantees ("nothing will go wrong", "100% safe"), minimising material risks, pressure or coercion, or dense jargon with no explanation. issue + a better phrasing, in ${D}. Else null.`;
+4. risk — toPatient only. Almost always null. Flag ONLY a concrete factual claim about a specific procedure or treatment that would mislead the patient's decision: a guarantee that it is risk-free or certain to work ("this surgery is 100% safe", "there are no risks at all"), or denying a material risk that exists. Encouragement, empathy and reassurance are good care and must NEVER be flagged: "you'll get better soon", "don't worry, we'll take good care of you", "you're doing great", "most people recover well". Never flag small talk, greetings or tone. When you do flag, issue = one neutral sentence, suggestion = a gentle alternative phrasing, in ${D}.`;
 };
 
 /** Plain-language rewrite request for this visit (elderly patients, no medical background). */

@@ -31,6 +31,9 @@ export class Viewer {
     this.pitch = 0;
     this.targetYaw = 0;
     this.targetPitch = 0;
+    this.zoom = 1;
+    this.targetZoom = 1;
+    this.dist = 3;
     this.current = null;
     this.key = null;
     this.clock = new THREE.Clock();
@@ -76,7 +79,9 @@ export class Viewer {
     const r = Math.max(size.x, size.y, size.z) * 0.5;
     this.camera.near = r / 50;
     this.camera.far = r * 50;
-    this.camera.position.set(0, 0, r / Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)) * 1.25);
+    this.dist = (r / Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2))) * 1.25;
+    this.camera.position.set(0, 0, this.dist);
+    this.zoom = this.targetZoom = 1;
     this.camera.updateProjectionMatrix();
   }
 
@@ -90,7 +95,8 @@ export class Viewer {
     const c = box.getCenter(new THREE.Vector3());
     obj.position.set(-c.x, -c.y, -c.z);
     const r = Math.max(...box.getSize(new THREE.Vector3()).toArray()) * 0.5;
-    this.camera.position.set(0, 0, (r / Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2))) * 1.15);
+    this.dist = (r / Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2))) * 1.15;
+    this.camera.position.set(0, 0, this.dist);
     this.camera.updateProjectionMatrix();
   }
 
@@ -109,10 +115,11 @@ export class Viewer {
   }
 
   /** Apply the shared view (from the other device). */
-  setView(yaw, pitch) {
+  setView(yaw, pitch, zoom) {
     if (this.dragging) return;
     this.targetYaw = yaw;
     this.targetPitch = pitch;
+    if (zoom) this.targetZoom = zoom;
   }
 
   start() {
@@ -136,6 +143,8 @@ export class Viewer {
     const dt = Math.min(this.clock.getDelta(), 0.05);
     this.yaw += (this.targetYaw - this.yaw) * 0.18;
     this.pitch += (this.targetPitch - this.pitch) * 0.18;
+    this.zoom += (this.targetZoom - this.zoom) * 0.2;
+    this.camera.position.z = this.dist / this.zoom;
     this.pivot.rotation.set(this.pitch, this.yaw, 0, 'YXZ');
     this.current?.update?.(dt, this.clock.elapsedTime);
     this.onTick?.(dt, this.clock.elapsedTime);
@@ -144,36 +153,61 @@ export class Viewer {
 
   #bindInput() {
     const c = this.canvas;
-    let sx = 0, sy = 0, moved = 0, lastSend = 0;
+    const pts = new Map();
+    let sx = 0, sy = 0, moved = 0, lastSend = 0, pinch0 = 0, zoom0 = 1;
+    const send = (force) => {
+      const now = performance.now();
+      if (force || now - lastSend > 60) (lastSend = now), this.onRotate?.(this.targetYaw, this.targetPitch, this.targetZoom);
+    };
+    const spread = () => {
+      const [a, b] = [...pts.values()];
+      return Math.hypot(a.x - b.x, a.y - b.y);
+    };
     c.addEventListener('pointerdown', (e) => {
       c.setPointerCapture(e.pointerId);
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
       this.dragging = true;
+      if (pts.size === 2) (pinch0 = spread()), (zoom0 = this.targetZoom), (moved = 99);
       sx = e.clientX;
       sy = e.clientY;
-      moved = 0;
+      if (pts.size === 1) moved = 0;
     });
     c.addEventListener('pointermove', (e) => {
-      if (!this.dragging) return;
+      if (!pts.has(e.pointerId)) return;
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pts.size === 2) {
+        // Pinch to zoom.
+        this.targetZoom = Math.max(0.6, Math.min(3, (zoom0 * spread()) / Math.max(1, pinch0)));
+        return send();
+      }
       const dx = e.clientX - sx, dy = e.clientY - sy;
       sx = e.clientX;
       sy = e.clientY;
       moved += Math.abs(dx) + Math.abs(dy);
       this.targetYaw += dx * 0.012;
       this.targetPitch = Math.max(-1.2, Math.min(1.2, this.targetPitch + dy * 0.01));
-      const now = performance.now();
-      if (now - lastSend > 60) {
-        lastSend = now;
-        this.onRotate?.(this.targetYaw, this.targetPitch);
-      }
+      send();
     });
     const end = (e) => {
-      if (!this.dragging) return;
+      if (!pts.has(e.pointerId)) return;
+      pts.delete(e.pointerId);
+      if (pts.size) return;
       this.dragging = false;
-      this.onRotate?.(this.targetYaw, this.targetPitch);
+      send(true);
       if (moved < 8) this.#pick(e);
     };
     c.addEventListener('pointerup', end);
-    c.addEventListener('pointercancel', () => (this.dragging = false));
+    c.addEventListener('pointercancel', (e) => (pts.delete(e.pointerId), (this.dragging = pts.size > 0)));
+    // Trackpad pinch / mouse wheel.
+    c.addEventListener(
+      'wheel',
+      (e) => {
+        e.preventDefault();
+        this.targetZoom = Math.max(0.6, Math.min(3, this.targetZoom * Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015))));
+        send();
+      },
+      { passive: false },
+    );
   }
 
   #pick(e) {

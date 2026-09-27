@@ -236,8 +236,11 @@ export function button(panel, x, y, w, h, label, action, o = {}) {
   ctx.fill();
   ctx.globalAlpha = 1;
   const color = filled ? '#000000' : action ? C.text : C.text3;
-  const size = o.size || Math.round(h * 0.4);
+  let size = o.size || Math.round(h * 0.4);
   font(ctx, size, o.weight || 600);
+  const room = w - Math.min(h, 40);
+  const tw = ctx.measureText(label).width;
+  if (tw > room) (size = Math.max(14, Math.floor((size * room) / tw))), font(ctx, size, o.weight || 600);
   ctx.fillStyle = color;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';

@@ -13,6 +13,7 @@ import { getRoom } from './room.js';
 import * as P from './pipeline.js';
 import { renderRecord } from './record.js';
 import { pack } from './i18n.js';
+import { speak, canSpeak } from './ai/tts.js';
 
 const app = express();
 app.disable('x-powered-by');
@@ -27,6 +28,21 @@ app.use(express.json({ limit: '1mb' }));
 app.get('/api/config', (req, res) => res.json({ caps: caps(), demoSteps: P.demoLength(), lan: lanAddresses(), ports: { http: config.port, https: config.httpsPort } }));
 
 app.get('/api/i18n/:lang', async (req, res) => res.json(await pack(String(req.params.lang).slice(0, 5))));
+
+// The doctor's words, spoken in the patient's language (headset read-aloud).
+app.get('/api/tts', async (req, res) => {
+  const room = getRoom(req.query.room);
+  const e = room.entry(String(req.query.entry || ''));
+  const lang = room.state.patientLang;
+  const text = e && (e.plain?.lang === lang ? e.plain.text : e.orig?.lang === lang ? e.orig.text : e.tr?.lang === lang ? e.tr.text : '');
+  if (!text || !canSpeak()) return res.status(404).end();
+  try {
+    res.type('audio/wav').sendFile(await speak(text, lang));
+  } catch (err) {
+    console.warn('[tts]', err.message);
+    res.status(502).end();
+  }
+});
 
 app.get('/api/qr', async (req, res) => {
   const text = String(req.query.text || '').slice(0, 500);
@@ -77,6 +93,7 @@ const HANDLERS = {
     if (st?.tool !== 'model') return;
     st.yaw = +m.yaw || 0;
     st.pitch = Math.max(-1.2, Math.min(1.2, +m.pitch || 0));
+    st.zoom = Math.max(0.6, Math.min(3, +m.zoom || 1));
     st.viewBy = ws.role;
     room.changed(false);
   },
@@ -120,7 +137,7 @@ const HANDLERS = {
   },
   patientLang: (room, ws, m) => P.setPatientLang(room, P.normLang(m.lang), 'doctor'),
   reading: (room, ws, m) => {
-    room.state.reading = { plain: !!m.plain, kana: !!m.plain && !!m.kana };
+    room.state.reading = { plain: !!m.plain, kana: !!m.plain && !!m.kana, voice: !!m.voice };
     room.changed();
   },
   demoNext: (room) => P.demoNext(room),
