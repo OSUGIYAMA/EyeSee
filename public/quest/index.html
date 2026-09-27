@@ -17,9 +17,14 @@
   button { font: inherit; cursor: pointer; border: 0; }
   .intro { position: fixed; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center; background: radial-gradient(120% 90% at 50% 0%, #2a2d35 0%, #0b0c0f 60%); }
   .card { width: min(440px, 88vw); text-align: center; }
+  .hello { height: 26px; margin: 0 0 10px; font-size: 18px; font-weight: 500; color: rgba(255,255,255,0.55); transition: opacity 0.5s ease, transform 0.5s ease; }
+  .hello.out { opacity: 0; transform: translateY(-6px); }
   .word { font-size: 44px; font-weight: 700; letter-spacing: -0.02em; margin: 0; }
   .tag { margin: 8px 0 0; font-size: 19px; color: rgba(255,255,255,0.72); font-weight: 500; }
-  .lead { margin: 22px auto 34px; max-width: 360px; font-size: 16px; color: rgba(255,255,255,0.5); }
+  .tag2 { margin: 4px 0 0; font-size: 17px; color: rgba(255,255,255,0.5); font-weight: 500; }
+  .lead { margin: 22px auto 34px; max-width: 380px; font-size: 16px; color: rgba(255,255,255,0.5); }
+  .lead span { display: block; margin-top: 6px; }
+  .primary small { font-weight: 500; opacity: 0.55; margin-left: 8px; }
   .primary { display: block; width: 100%; height: 56px; border-radius: 28px; background: #fff; color: #000; font-size: 18px; font-weight: 600; transition: transform 0.15s, background 0.15s; }
   .primary:hover { background: #e8e8ed; }
   .primary:active { transform: scale(0.98); }
@@ -37,8 +42,10 @@
 
 <section id="intro" class="intro">
   <div class="card">
+    <p id="hello" class="hello">Hello</p>
     <p class="word">EyeSee</p>
     <p id="tagline" class="tag"></p>
+    <p id="tagline2" class="tag2"></p>
     <p id="lead" class="lead"></p>
     <button id="startBtn" class="primary"></button>
     <div id="xrBtns" hidden>

@@ -1643,14 +1643,34 @@ addEventListener('keyup', (e) => e.code === 'Space' && document.activeElement?.t
 // ================================================================ intro
 
 const $ = (id) => document.getElementById(id);
+// The first screen is multilingual on purpose: English, plus the patient's own language.
+const te = (key) => packEn[`ui.${key}`] ?? '';
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 function intro() {
-  $('tagline').textContent = t('tagline');
-  $('lead').textContent = `${t('intro1')} ${t('intro2')}`;
-  $('startBtn').textContent = t('start');
-  $('arBtn').textContent = t('startAR');
-  $('vrBtn').textContent = t('startVR');
-  $('deskBtn').textContent = t('preview');
+  const both = packLang && packLang !== 'en';
+  const two = (key) => (both && t(key) !== te(key) ? `${esc(te(key))}<small>${esc(t(key))}</small>` : esc(te(key) || t(key)));
+  $('tagline').textContent = te('tagline') || t('tagline');
+  $('tagline2').textContent = both ? t('tagline') : '';
+  $('lead').innerHTML = `${esc(te('intro1'))} ${esc(te('intro2'))}${both ? `<span>${esc(t('intro1'))}${esc(t('intro2'))}</span>` : ''}`;
+  $('startBtn').innerHTML = two('start');
+  $('arBtn').innerHTML = two('startAR');
+  $('vrBtn').innerHTML = two('startVR');
+  $('deskBtn').innerHTML = two('preview');
 }
+
+// A greeting that drifts through the languages EyeSee speaks.
+const HELLOS = ['Hello', 'こんにちは', 'Hola', '你好', '안녕하세요', 'Xin chào', 'Olá', 'Kamusta', 'مرحبا', 'नमस्ते', 'Привет', 'Bonjour'];
+let helloIdx = 0;
+setInterval(() => {
+  const el = $('hello');
+  if (!el || $('intro').hidden) return;
+  el.classList.add('out');
+  setTimeout(() => {
+    helloIdx = (helloIdx + 1) % HELLOS.length;
+    el.textContent = HELLOS[helloIdx];
+    el.classList.remove('out');
+  }, 500);
+}, 1900);
 $('startBtn').onclick = async () => {
   voiceCtx ||= new (window.AudioContext || window.webkitAudioContext)();
   voiceCtx.resume().catch(() => {});
