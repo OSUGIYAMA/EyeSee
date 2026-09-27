@@ -1,8 +1,9 @@
 // One entry point for every structured LLM call in EyeSee.
-// Claude is the primary engine; OpenAI chat is used only when no Claude credentials exist.
+// Provider order: Claude (if credentials) → Gemini on Vertex → OpenAI → offline fallbacks (callers handle).
 import Anthropic from '@anthropic-ai/sdk';
-import { config } from '../config.js';
+import { config, llmProvider } from '../config.js';
 import { openai } from './openai.js';
+import { gemini, geminiJSON } from './gemini.js';
 
 export const anthropic = config.anthropic ? new Anthropic() : null;
 
@@ -10,27 +11,73 @@ export class LLMUnavailable extends Error {}
 export class LLMRefusal extends Error {}
 
 let fallbacksSupported = config.serverFallbacks;
-let webSearchSupported = config.webSearch;
+let claudeSearchSupported = config.webSearch;
+let geminiSearchSupported = true;
+
+// ---- cost guard: a global concurrency + per-minute cap on paid calls ----
+const MAX_CONCURRENT = 6;
+let active = 0;
+const waiters = [];
+const recent = [];
+export async function limited(fn) {
+  const now = Date.now();
+  while (recent.length && now - recent[0] > 60_000) recent.shift();
+  if (recent.length >= config.maxCallsPerMinute) throw new Error('EyeSee rate guard: too many AI calls this minute');
+  recent.push(now);
+  if (active >= MAX_CONCURRENT) await new Promise((r) => waiters.push(r));
+  active++;
+  try {
+    return await fn();
+  } finally {
+    active--;
+    waiters.shift()?.();
+  }
+}
 
 /**
  * Ask the model for JSON matching `schema`.
  * @param {object} o
- * @param {string} o.name        short schema name (used by OpenAI)
+ * @param {string} o.name        short schema name (OpenAI needs one)
  * @param {string} o.system      stable system prompt
- * @param {string} o.prompt      the volatile user content
- * @param {object} o.schema      JSON schema (every object: additionalProperties:false, all keys required)
- * @param {'low'|'medium'|'high'} [o.effort]
+ * @param {string} o.prompt      volatile user content
+ * @param {object} o.schema      JSON schema (closed objects, all keys required)
+ * @param {'low'|'medium'|'high'} [o.effort]  reasoning effort (latency vs. depth)
  * @param {number} [o.maxTokens]
- * @param {boolean} [o.fast]     latency-sensitive route (translation)
- * @param {boolean} [o.webSearch] allow Claude's web search server tool
+ * @param {boolean} [o.fast]     latency-sensitive route
+ * @param {boolean} [o.search]   allow web search (Claude web_search / Gemini Google Search)
  */
-export async function jsonCall({ name, system, prompt, schema, effort = 'medium', maxTokens = 4000, fast = false, webSearch = false }) {
-  if (anthropic) return claudeJSON({ system, prompt, schema, effort, maxTokens, fast, webSearch });
-  if (openai) return openaiJSON({ name, system, prompt, schema });
-  throw new LLMUnavailable('No LLM credentials configured');
+export async function jsonCall(o) {
+  const provider = llmProvider();
+  if (!provider) throw new LLMUnavailable('No LLM credentials configured');
+  return limited(() => {
+    if (provider === 'claude') return claudeJSON(o);
+    if (provider === 'gemini') return geminiCall(o);
+    return openaiJSON(o);
+  });
 }
 
-async function claudeJSON({ system, prompt, schema, effort, maxTokens, fast, webSearch }) {
+/** Audio in → JSON out (Gemini only: transcription + translation in one round trip). */
+export const canHearAudio = () => !!gemini;
+export async function audioJsonCall({ system, prompt, schema, audio }) {
+  if (!gemini) throw new LLMUnavailable('Audio understanding needs Google Cloud credentials');
+  return limited(() => geminiJSON({ system, prompt, schema, audio, thinking: 'LOW' }));
+}
+
+const GEMINI_THINKING = { low: 'LOW', medium: 'MEDIUM', high: 'HIGH' };
+async function geminiCall({ system, prompt, schema, effort = 'medium', search = false }) {
+  const thinking = GEMINI_THINKING[effort] || 'LOW';
+  if (search && geminiSearchSupported) {
+    try {
+      return await geminiJSON({ system, prompt, schema, thinking, search: true });
+    } catch (err) {
+      console.warn('[llm] Gemini search + JSON failed, continuing without search:', err.message?.slice(0, 160));
+      geminiSearchSupported = false;
+    }
+  }
+  return geminiJSON({ system, prompt, schema, thinking });
+}
+
+async function claudeJSON({ system, prompt, schema, effort = 'medium', maxTokens = 4000, fast = false, search = false }) {
   const params = {
     model: fast ? config.fastModel : config.model,
     max_tokens: maxTokens,
@@ -38,9 +85,7 @@ async function claudeJSON({ system, prompt, schema, effort, maxTokens, fast, web
     messages: [{ role: 'user', content: prompt }],
     output_config: { effort, format: { type: 'json_schema', schema } },
   };
-  if (webSearch && webSearchSupported) {
-    params.tools = [{ type: 'web_search_20260209', name: 'web_search', max_uses: 2 }];
-  }
+  if (search && claudeSearchSupported) params.tools = [{ type: 'web_search_20260209', name: 'web_search', max_uses: 2 }];
 
   let res;
   try {
@@ -49,7 +94,7 @@ async function claudeJSON({ system, prompt, schema, effort, maxTokens, fast, web
     // Web search + structured output may be unavailable for this org/model: retry once without it.
     if (params.tools && err instanceof Anthropic.BadRequestError) {
       console.warn('[llm] web search rejected, continuing without it:', err.message);
-      webSearchSupported = false;
+      claudeSearchSupported = false;
       delete params.tools;
       res = await createMessage(params);
     } else throw err;
@@ -109,7 +154,7 @@ function parseJSON(text) {
   }
 }
 
-// Schema helpers: every object is closed and every key required (valid for Claude and OpenAI strict mode).
+// Schema helpers: every object is closed and every key required (valid for Claude, Gemini and OpenAI strict mode).
 export const S = {
   str: (description) => ({ type: 'string', ...(description && { description }) }),
   int: (description) => ({ type: 'integer', ...(description && { description }) }),

@@ -12,54 +12,86 @@ const flag = (v, dflt) => (v == null || v === '' ? dflt : !/^(0|false|no|off)$/i
 
 // Anthropic credentials can come from an env var or an `ant auth login` profile.
 const anthropicProfile = fs.existsSync(path.join(os.homedir(), '.config', 'anthropic'));
-const hasAnthropic = !!(env.ANTHROPIC_API_KEY || env.ANTHROPIC_AUTH_TOKEN || anthropicProfile);
-const hasOpenAI = !!env.OPENAI_API_KEY;
+const hasAnthropic = flag(env.EYESEE_USE_CLAUDE, true) && !!(env.ANTHROPIC_API_KEY || env.ANTHROPIC_AUTH_TOKEN || anthropicProfile);
+
+// Google Cloud (Vertex AI) service account: a key file path or the whole JSON in an env var.
+function googleCredentials() {
+  if (env.GOOGLE_SERVICE_ACCOUNT_JSON) {
+    try {
+      return JSON.parse(env.GOOGLE_SERVICE_ACCOUNT_JSON);
+    } catch {
+      console.warn('[config] GOOGLE_SERVICE_ACCOUNT_JSON is not valid JSON');
+    }
+  }
+  const file = env.GOOGLE_APPLICATION_CREDENTIALS && path.resolve(ROOT, env.GOOGLE_APPLICATION_CREDENTIALS);
+  if (file && fs.existsSync(file)) {
+    env.GOOGLE_APPLICATION_CREDENTIALS = file; // absolute, for google-auth-library
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  }
+  return null;
+}
+const gcp = googleCredentials();
 
 export const config = {
   port: +(env.PORT || 8080),
   httpsPort: +(env.HTTPS_PORT || 8443),
   https: flag(env.EYESEE_HTTPS, true),
 
-  // Claude does the language work: translation, glossary, understanding judge, consent, AI mediator.
+  // Claude (if configured) does the language work: translation, glossary, consent, AI mediator.
   anthropic: hasAnthropic,
   model: env.EYESEE_MODEL || 'claude-opus-5',
   fastModel: env.EYESEE_FAST_MODEL || env.EYESEE_MODEL || 'claude-opus-5',
   serverFallbacks: flag(env.EYESEE_FALLBACKS, true),
   webSearch: flag(env.EYESEE_WEB_SEARCH, true),
 
-  // OpenAI does speech-to-text and image generation (and text, only if no Claude credentials).
-  openai: hasOpenAI,
+  // Gemini on Vertex AI: speech (audio in → transcript + translation in one call), text and images.
+  google: !!gcp,
+  googleCredentials: gcp,
+  googleProject: env.GOOGLE_CLOUD_PROJECT || gcp?.project_id || '',
+  googleLocation: env.GOOGLE_CLOUD_LOCATION || 'global',
+  geminiModel: env.GEMINI_MODEL || 'gemini-3.6-flash',
+  geminiImageModel: env.GEMINI_IMAGE_MODEL || 'gemini-2.5-flash-image',
+
+  // OpenAI: optional alternative for speech-to-text / images / text.
+  openai: !!env.OPENAI_API_KEY,
   sttModel: env.OPENAI_STT_MODEL || 'gpt-4o-transcribe',
   imageModel: env.OPENAI_IMAGE_MODEL || 'gpt-image-1',
   openaiTextModel: env.OPENAI_TEXT_MODEL || 'gpt-4.1',
 
-  // Understanding judge: 'auto' → JEV if configured, else LLM, else offline heuristic.
-  judge: env.EYESEE_JUDGE || 'auto',
-  jevUrl: env.JEV_API_URL || '',
-  jevKey: env.JEV_API_KEY || '',
+  // Understanding judge: JEV (TypeSafe AI System One) scores every utterance during consent.
+  judge: env.EYESEE_JUDGE || 'auto', // auto | jev | llm | heuristic
+  jevUrl: env.JEV_API_URL || 'https://api.typesafe.ai/v1/systemone',
+  jevKey: env.JEV_API_KEY || env.TYPESAFE_API_KEY || '',
+  jevModel: env.JEV_MODEL || 'jev-latest',
   consentThreshold: +(env.EYESEE_CONSENT_THRESHOLD || 8),
 
   patientLang: env.EYESEE_PATIENT_LANG || 'ja',
   doctorLang: env.EYESEE_DOCTOR_LANG || 'en',
+
+  // Cost guards (hackathon credits have no hard cap).
   maxImagesPerSession: +(env.EYESEE_MAX_IMAGES || 12),
+  maxCallsPerMinute: +(env.EYESEE_MAX_CALLS_PER_MIN || 60),
 };
 
-export const caps = () => ({
-  llm: config.anthropic ? 'claude' : config.openai ? 'openai' : null,
-  stt: config.openai,
-  image: config.openai,
-  webSearch: config.anthropic && config.webSearch,
-  judge: judgeProvider(),
-  consentThreshold: config.consentThreshold,
-});
+export const llmProvider = () => (config.anthropic ? 'claude' : config.google ? 'gemini' : config.openai ? 'openai' : null);
+export const sttProvider = () => (config.google ? 'gemini' : config.openai ? 'openai' : null);
+export const imageProvider = () => (config.google ? 'gemini' : config.openai ? 'openai' : null);
 
 export function judgeProvider() {
   const j = config.judge;
-  if (j === 'jev' || (j === 'auto' && config.jevUrl)) return 'jev';
-  if (j === 'heuristic') return 'heuristic';
-  if (config.anthropic || config.openai) return 'llm';
+  if ((j === 'auto' || j === 'jev') && config.jevKey) return 'jev';
+  if ((j === 'auto' || j === 'llm') && llmProvider()) return 'llm';
   return 'heuristic';
 }
+
+export const caps = () => ({
+  llm: llmProvider(),
+  stt: sttProvider(),
+  image: imageProvider(),
+  webSearch: (config.anthropic && config.webSearch) || config.google,
+  judge: judgeProvider(),
+  consentThreshold: config.consentThreshold,
+});
 
 export function lanAddresses() {
   return Object.values(os.networkInterfaces())
