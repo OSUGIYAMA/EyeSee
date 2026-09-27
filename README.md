@@ -11,10 +11,6 @@ and also within one language, where accents and medical jargon get in the way ju
 The doctor uses a laptop or phone, the patient wears a Meta Quest, and both see one live record of the
 visit, each in their own language.
 
-EyeSeeは、医師と患者のための「共有理解インターフェース」です。言葉が違う場合はもちろん、同じ言葉どうしでも
-アクセントや専門用語で伝わらない問題に対応します。医師はPCかスマホ、患者はMeta Questを使い、診察の内容を
-二人で同じ一つの記録として、それぞれの言葉でリアルタイムに見ます。
-
 ## Vision
 
 **Start with informed consent: the highest-stakes decision in medicine.**
@@ -33,41 +29,19 @@ matters that people truly understand before they press "Yes".
 - **The patient holds the information about the illness**: where it hurts and what it feels like. That is what VR should make physical. The patient points at a life-size body and picks the sensation they feel from animated orbs, so "it hurts here, like this, this much" lands on the body itself where the doctor can see it.
 - **The doctor holds the information about the decision.** The patient must truly understand it mainly at informed consent. For everything else, such as how to take a medication, a faithful translation plus the key points is enough.
 
-## ビジョン
-
-**最高レベルの意思決定である、インフォームド・コンセントから始める。**
-
-EyeSeeが作っているのは医療用VRではなく、ほかの領域へ広げられる *Shared Understanding Interface* です。
-
-狙っている問題の形は一つです。Aが説明した、Bが違う意味で理解した、そのまま重大な意思決定をした、後から紛争になる。
-インフォームド・コンセントは、その最後の局面です。やり直しのきかない決定の直前で、医師と患者の情報格差がいちばん大きく、訴訟が生まれる場所でもあります。
-医療でこれが機能するなら、将来的には法律、保険、移民手続き、家を借りる契約、金融契約など、「Yesを押す前に本当に理解していること」が重要な領域へ広げられます。
-
-### 情報を、両方向にフィジカルにする
-
-- **病気の情報を持っているのは患者です。** どこが痛いのか、どんな感じなのか。VRでフィジカルにすべきなのはここです。患者は等身大の人体を指さし、動く球体から感覚を選ぶ。「ここが、こういう感じで、これくらい痛い」が体の上に置かれ、医師がそのまま把握できます。
-- **意思決定の情報を持っているのは医師です。** 患者がそれを本当に理解しなければならないのは、主にインフォームド・コンセントの場面です。薬の説明などは、正確な翻訳と大事なポイントがあれば十分です。
-
-### Who it is for / 誰のために
+### Who it is for
 
 - Doctors who worry that a gap in communication will turn into a lawsuit, and patients who can't follow medical English.
-  情報の伝達不足からの訴訟を恐れている医師と、英語が苦手な患者。
 - The patient speaks in whatever language is easiest for them, even with a strong accent. The doctor can see, in real time, which parts the patient did and didn't understand.
-  患者は自分がいちばん話しやすい言葉で話せばいい。医師は、患者がどこを理解できていないかをリアルタイムで確認できます。
 
-### Why medicine first / なぜ医療から始めるのか
+### Why medicine first
 
 - CRICO/Candello (2025) analysed U.S. medical professional liability data from 2014–2024, covering about a third of open and closed claims. 40% of asserted malpractice cases involved a communication-related factor, and 63% of those involved a provider–patient communication failure.
-  米国の医療賠償データ（2014–2024年）の分析では、訴訟事案の40%にコミュニケーション要因があり、そのうち63%が医療者と患者の間のコミュニケーション失敗でした。
 - In another study of 498 claims, 49% involved a communication failure. Those cases cost about $237,600 on average, against about $154,100 without one.
-  別の研究（498件）では49%にコミュニケーションの失敗があり、平均総コストは約23.8万ドル（失敗なしは約15.4万ドル）でした。
 - Across 21,101 closed claims, the main drivers of patient/family–provider communication problems were expectation communication, inadequate informed consent and poor rapport.
-  21,101件のclosed claimsでは、主な要因として期待値の伝え方、不十分なインフォームド・コンセント、信頼関係の不足が挙げられています。
 - In 9,500+ surgical malpractice cases, inadequate informed consent made an indemnity payment more likely. Not explaining non-surgical alternatives was a specific risk factor.
-  9,500件超の手術関連の事案では、不十分なインフォームド・コンセントが賠償支払いにつながりやすく、特に手術以外の選択肢を説明しなかったことがリスク要因でした。
 
 That last finding is why EyeSee's understanding score cannot reach 7/10 until alternatives have been discussed. The demo shows the doctor asking the AI "Did I forget anything?" and the AI catching that gap.
-だからEyeSeeの理解度スコアは、代替案が説明されるまで7/10に届きません。デモでは、医師が「言い忘れはある？」とAIに聞き、AIがそれを指摘します。
 
 ## What EyeSee does
 
@@ -77,11 +51,11 @@ That last finding is why EyeSee's understanding score cannot reach 7/10 until al
 - **One shared conversation.** Each side reads everything in their own language, with what was actually said in small type underneath. Live indicators show who is speaking and what is being translated.
 - **Read aloud in the headset** (on by default): the doctor's words are also spoken to the patient in their language. The headset microphone pauses while it speaks.
 - **Plain explanations** and, for Japanese, **Hiragana**: the patient reads a school-textbook-level version (or mostly-kana, phrase-spaced text). The literal translation stays small underneath. On the doctor's screen, your own words shrink and what the patient actually reads is shown larger.
-- **Nuance for the doctor**, for example 「はい」 may mean "I'm listening" rather than "I agree", or ずきずき → "throbbing (zuki-zuki)". A note appears only for a concrete false guarantee ("100% safe"); encouragement and reassurance are never flagged.
+- **Nuance for the doctor**, for example Japanese *hai* may mean "I'm listening" rather than "I agree", and the sound word *zuki-zuki* becomes "throbbing (zuki-zuki)". A note appears only for a concrete false guarantee ("100% safe"); encouragement and reassurance are never flagged.
 
 ### The patient shows their symptoms (information made physical)
-- The patient presses **伝える (Show)** in the headset, or the doctor opens **Symptoms**.
-- The patient points at a life-size body, picks what it feels like from 10 animated sensations (ずきずき, ちくちく, しめつけ, しくしく…), then picks the strength from 0 to 10.
+- The patient presses **Show** in the headset, or the doctor opens **Symptoms**.
+- The patient points at a life-size body, picks what it feels like from 10 animated sensations (throbbing, prickling, squeezing, a nagging ache…, named with the sound words patients use, such as *zuki-zuki* or *shiku-shiku*), then picks the strength from 0 to 10.
 - The sensation stays on the body where they pointed.
 - The doctor sees it all:
   - a chip per spot under the understanding bar;
@@ -91,12 +65,12 @@ That last finding is why EyeSee's understanding score cannot reach 7/10 until al
 
 ### Explaining (the doctor's information)
 - **Glossary:** medical terms the doctor used are explained in plain words in the patient's language, and underlined in the text.
-- **Illustrations:** press 絵で見る and a picture opens large in front of the patient. The AI first designs one clear, anatomically sensible subject; the image has no text, and the caption is drawn in the patient's language. Tap the picture, or wait 30 s, and it flies back to where it came from.
+- **Illustrations:** press **Show picture** and a picture opens large in front of the patient. The AI first designs one clear, anatomically sensible subject; the image has no text, and the caption is drawn in the patient's language. Tap the picture, or wait 30 s, and it flies back to where it came from.
 - **3D, shared:** the doctor rotates the model, pinches to zoom and taps parts, and the headset mirrors it live. The library:
   - a heart with a stenosis;
   - lungs;
   - step-by-step procedures: coronary stent (PCI), liver resection, gastrectomy.
-- **わかった / わからない:** the patient marks any line they did or didn't understand. After わからない, the doctor gets a simpler way to say it and the patient gets a plain explanation.
+- **I see / I don't understand:** the patient marks any line they did or didn't understand. After "I don't understand", the doctor gets a simpler way to say it and the patient gets a plain explanation.
 
 ### EyeSee AI
 - Hold the **AI orb** (headset) or the AI button (doctor) and ask anything. Both sides see the question and the answer.
@@ -120,9 +94,9 @@ That last finding is why EyeSee's understanding score cannot reach 7/10 until al
 
 On the doctor's screen, open **⋯ → Play Demo**. One tap plays a complete visit, paced for an audience, in about 1:30–1:50:
 
-1. The patient: 「食後に胃がしくしく痛む」. The しくしく sensation lands on the upper stomach of the body.
+1. The patient: "My stomach has a nagging ache after meals." The nagging-ache sensation lands on the upper stomach of the body.
 2. The doctor finds a small tumor in the lower stomach and recommends a distal gastrectomy. The stomach model shows each step: tumor, cutting, removal, reconnection.
-3. The doctor explains anesthesia and the risks. The patient asks 「ふつうに食べられますか？」, and the model shows eating after recovery.
+3. The doctor explains anesthesia and the risks. The patient asks "Will I be able to eat normally?", and the model shows eating after recovery.
 4. The doctor asks the AI "Did I forget anything?", and the AI points out the missing alternatives. **The understanding score is held at 6 until this point.**
 5. The doctor explains the alternatives and asks the patient to explain the plan back. The score passes 7.
 6. Consent: the final check in the chat, the 3-question check, and both signatures.
@@ -134,7 +108,7 @@ Each of the doctor's lines waits until the headset has finished reading it aloud
 After every utterance, [JEV](https://docs.typesafe.ai) (TypeSafe AI's System One model) answers typed questions about the conversation, in about 100 ms per call:
 - **score:** a 10-level rubric, from "nothing explained, even if the patient says yes" to "exemplary".
 - **noul** (probability yes/no), one per consent element: diagnosis, procedure, benefits, risks, alternatives, option to decline, anesthesia, recovery, invitation to ask questions.
-- **choice**, for the patient's understanding: none / *claimed* (only "yes / はい") / partial / demonstrated (they explained it back).
+- **choice**, for the patient's understanding: none / *claimed* (only "yes" / "hai") / partial / demonstrated (they explained it back).
 
 The server then applies caps, so a bare "I agree" can never unlock consent:
 
