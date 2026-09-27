@@ -64,6 +64,13 @@ export class Room {
     this.state.aiListening = { doctor: false, patient: false };
     this.state.aiBusy = false;
     this.state.demo = { index: this.state.demo?.index || 0, playing: false };
+    // Timed consent moments don't survive a restart: settle them so the patient can carry on.
+    const c = this.state.consent;
+    if (c?.reveal) {
+      c.reveal = null;
+      c.qIndex = Math.max(0, c.quiz.findIndex((x) => !x.passed));
+    }
+    if (c?.status === 'passed' || (c?.status === 'quiz' && c.quiz.every((x) => x.passed))) c.status = 'signing';
     this.seq = this.state.entries.reduce((m, e) => Math.max(m, e.seq), 0);
     this.broadcastTimer = null;
     this.saveTimer = null;

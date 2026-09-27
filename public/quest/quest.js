@@ -490,7 +490,7 @@ function convItems() {
       if (ty === 'confused' && e.help?.patientExplanation) items.push({ e, type: 'help' });
       else if (ty === 'symptom' && !e.removed) items.push({ e, type: 'caption' });
       else if (['feeling', 'signature'].includes(ty)) items.push({ e, type: 'caption' });
-    } else if (e.kind === 'system' && ['language', 'signed'].includes(e.event?.type)) items.push({ e, type: 'caption' });
+    } else if (e.kind === 'system' && ['language', 'signed', 'quizPassed'].includes(e.event?.type)) items.push({ e, type: 'caption' });
     else if (e.kind === 'system' && e.event?.type === 'summary') items.push({ e, type: 'summary' });
   }
   if (S.speaking?.doctor) items.push({ type: 'typing-doctor', e: { id: 'typing-doctor', v: 0 } });
@@ -508,6 +508,7 @@ function captionText(e) {
   if (ev.type === 'mode') return tk(`mode.${ev.mode}`, '');
   if (ev.type === 'language') return LANGUAGES[ev.lang]?.native || '';
   if (ev.type === 'signed') return t('recorded');
+  if (ev.type === 'quizPassed') return `${t('allCorrect')}  ${ev.n} / ${ev.n}`;
   return '';
 }
 
@@ -967,23 +968,39 @@ function drawSheet() {
     if (mode === 'consent-quiz') {
       const i = Math.max(0, c.qIndex || 0);
       const q = c.quiz[i];
-      c.quiz.forEach((x, j) => {
-        ctx.beginPath();
-        ctx.arc(W - X - (c.quiz.length - 1 - j) * 26 - 6, 50, 7, 0, Math.PI * 2);
-        ctx.fillStyle = x.passed ? C.green : j === i ? C.text : C.fill;
-        ctx.fill();
-      });
+      // A correct answer stays on screen for a moment, marked, before the next question.
+      const rv = c.reveal?.q === q.id ? c.reveal : null;
+      const k = rv ? momentK(`reveal:${q.id}`, 0.5) : 1;
+      quizDots(ctx, c, W, X);
       text(ctx, `${i + 1} / ${c.quiz.length}`, X, 36, 24, C.text3, 600);
       const last = q.tries[q.tries.length - 1];
-      const wrong = last && !last.ok;
+      const wrong = !rv && last && !last.ok;
       let y = 78;
       y += para(ctx, q.patient, X, y, W - X * 2, 30, C.text, 700, 1.38, 2);
-      if (wrong) para(ctx, t('quizWrong'), X, y + 6, W - X * 2, 21, C.orange, 600, 1.35, 1);
+      if (rv) text(ctx, t('correct'), X, y + 6, 22, C.green, 700);
+      else if (wrong) para(ctx, t('quizWrong'), X, y + 6, W - X * 2, 21, C.orange, 600, 1.35, 1);
       const oh = 60, gap = 10, oy = H - 3 * (oh + gap) - 14;
-      q.options.forEach((o, k) => {
-        const picked = wrong && last.choice === k;
-        button(p, X, oy + k * (oh + gap), W - X * 2, oh, o.patient, () => link.send({ type: 'consentAnswer', q: q.id, choice: k }), { id: `o${i}:${k}`, size: 24, r: 22, tint: picked ? 'rgba(255,159,10,0.35)' : null });
+      q.options.forEach((o, j) => {
+        const right = rv?.choice === j;
+        const picked = wrong && last.choice === j;
+        const by = oy + j * (oh + gap);
+        button(p, X, by, W - X * 2, oh, o.patient, rv ? null : () => link.send({ type: 'consentAnswer', q: q.id, choice: j }), { id: `o${i}:${j}`, size: 24, r: 22, lit: right, tint: right ? 'rgba(48,209,88,0.5)' : picked ? 'rgba(255,159,10,0.35)' : null });
+        if (right) tick(ctx, W - X - 38, by + oh / 2, 20, k);
       });
+      animating = k < 1;
+      return;
+    }
+
+    if (mode === 'consent-passed') {
+      const k = momentK('passed', 0.8);
+      quizDots(ctx, c, W, X);
+      text(ctx, `${c.quiz.length} / ${c.quiz.length}`, X, 36, 24, C.text3, 600);
+      checkBadge(ctx, W / 2, H / 2 - 44, 46, k);
+      ctx.globalAlpha = Math.max(0, Math.min(1, (k - 0.3) / 0.5));
+      text(ctx, t('allCorrect'), W / 2, H / 2 + 22, 40, C.text, 700, 'center');
+      text(ctx, t('nextSign'), W / 2, H / 2 + 78, 24, C.text2, 500, 'center');
+      ctx.globalAlpha = 1;
+      animating = k < 1;
       return;
     }
 
@@ -1026,23 +1043,62 @@ function drawSheet() {
     }
 
     if (mode === 'consent-signed') {
-      ctx.beginPath();
-      ctx.arc(W / 2, H / 2 - 40, 38, 0, Math.PI * 2);
-      ctx.fillStyle = C.green;
-      ctx.fill();
-      ctx.strokeStyle = '#fff';
-      ctx.lineWidth = 7;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      ctx.beginPath();
-      ctx.moveTo(W / 2 - 16, H / 2 - 40);
-      ctx.lineTo(W / 2 - 4, H / 2 - 27);
-      ctx.lineTo(W / 2 + 18, H / 2 - 54);
-      ctx.stroke();
+      const k = momentK('signed', 0.8);
+      checkBadge(ctx, W / 2, H / 2 - 40, 38, k);
       text(ctx, t('recorded'), W / 2, H / 2 + 20, 30, C.text, 700, 'center');
+      animating = k < 1;
     }
-  }, JSON.stringify([mode, st, S.symptoms, c && { s: c.status, i: c.index, q: c.qIndex, t: (c.quiz || []).map((x) => x.tries.length + ':' + x.passed), a: c.checkpoints.map((x) => x.ack), g: Object.keys(c.signatures || {}) }, hoverPain, strokes.length, packLang, fontsReady, stageMeta?.id, mode.startsWith('consent-pre') ? Math.floor(n * 10) : 0]));
+  }, JSON.stringify([mode, st, S.symptoms, c && { s: c.status, i: c.index, q: c.qIndex, r: c.reveal, t: (c.quiz || []).map((x) => x.tries.length + ':' + x.passed), a: c.checkpoints.map((x) => x.ack), g: Object.keys(c.signatures || {}) }, hoverPain, strokes.length, packLang, fontsReady, stageMeta?.id, mode.startsWith('consent-pre') ? Math.floor(n * 10) : n - moment.t < 1 ? Math.floor(n * 45) : 0]));
   return animating;
+}
+
+// A consent moment (a correct answer, all correct, signed) animates in once, from when it first shows.
+let moment = { key: null, t: -1e9 };
+function momentK(key, dur) {
+  if (moment.key !== key) moment = { key, t: now() };
+  return Math.min(1, (now() - moment.t) / dur);
+}
+
+function quizDots(ctx, c, W, X) {
+  const i = Math.max(0, c.qIndex || 0);
+  c.quiz.forEach((x, j) => {
+    ctx.beginPath();
+    ctx.arc(W - X - (c.quiz.length - 1 - j) * 26 - 6, 50, 7, 0, Math.PI * 2);
+    ctx.fillStyle = x.passed ? C.green : j === i ? C.text : C.fill;
+    ctx.fill();
+  });
+}
+
+/** Green disc that pops in (k 0→0.45), then its check mark draws on. */
+function checkBadge(ctx, cx, cy, r, k = 1) {
+  const a = Math.min(1, k / 0.45);
+  const s = r * (0.55 + 0.45 * (1 - Math.pow(1 - a, 3)) + 0.07 * Math.sin(a * Math.PI));
+  ctx.globalAlpha = a;
+  ctx.beginPath();
+  ctx.arc(cx, cy, s, 0, Math.PI * 2);
+  ctx.fillStyle = C.green;
+  ctx.fill();
+  ctx.globalAlpha = 1;
+  tick(ctx, cx, cy, r, (k - 0.35) / 0.65);
+}
+
+/** A check mark, drawn on progressively as d goes 0→1. */
+function tick(ctx, cx, cy, r, d = 1) {
+  if (d <= 0) return;
+  const p = [[-0.42, 0.02], [-0.11, 0.34], [0.47, -0.36]].map(([x, y]) => [cx + x * r, cy + y * r]);
+  const l1 = Math.hypot(p[1][0] - p[0][0], p[1][1] - p[0][1]);
+  const l2 = Math.hypot(p[2][0] - p[1][0], p[2][1] - p[1][1]);
+  const len = Math.min(1, d) * (l1 + l2);
+  const along = (a, b, f) => [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = Math.max(3, r * 0.19);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(...p[0]);
+  ctx.lineTo(...along(p[0], p[1], Math.min(1, len / l1)));
+  if (len > l1) ctx.lineTo(...along(p[1], p[2], (len - l1) / l2));
+  ctx.stroke();
 }
 
 function recentFeelings() {
@@ -1583,7 +1639,7 @@ function frame() {
     anim = drawPicture() || anim;
     anim = drawToolbar() || anim;
     syncStage();
-    if (anim) animUntil = n + 0.05;
+    if (anim) animUntil = n + 0.3; // generous, so a slow or dropped frame never freezes an animation
   }
 
   if (stageObj) {

@@ -74,6 +74,9 @@ const UI = {
     sources: 'Sources',
     toAI: 'To AI',
     quizWrong: 'Not quite. Listen to the doctor, then try again.',
+    correct: 'Correct',
+    allCorrect: 'All correct',
+    nextSign: 'Next, sign to agree',
     agreeing: 'You are agreeing to',
   },
   ja: {
@@ -139,6 +142,9 @@ const UI = {
     sources: '出典',
     toAI: 'AIへ',
     quizWrong: 'ちがいます。医師の説明を聞いてから、もう一度えらんでください。',
+    correct: '正解',
+    allCorrect: '全問正解',
+    nextSign: 'つぎは、署名です',
     agreeing: '同意する内容',
   },
 };
@@ -192,12 +198,23 @@ export async function pack(lang) {
   if (lang === 'ja' || lang === 'en') return builtin(lang);
   if (cache.has(lang)) return cache.get(lang);
   const file = path.join(DIR, `${lang}.json`);
+  const en = await builtin('en');
   if (fs.existsSync(file)) {
-    const p = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const p = { ...en, ...saved };
     cache.set(lang, p);
+    // Strings added since this pack was cached: translate just those, once.
+    const missing = Object.fromEntries(Object.keys(en).filter((k) => !(k in saved)).map((k) => [k, en[k]]));
+    if (Object.keys(missing).length && llmProvider()) {
+      translatePack(missing, lang)
+        .then((add) => {
+          Object.assign(p, add);
+          fs.writeFileSync(file, JSON.stringify(p, null, 1));
+        })
+        .catch((err) => console.warn(`[i18n] ${lang} update failed:`, err.message));
+    }
     return p;
   }
-  const en = await builtin('en');
   if (!llmProvider()) return en;
   const job = translatePack(en, lang)
     .then((p) => {

@@ -671,7 +671,7 @@ let consentSeen = null;
 function syncSheet() {
   const c = S.consent;
   if (!c && sheetKind === 'consent') closeSheet();
-  if (c && consentSeen !== c.status && ['preparing', 'precheck', 'signing', 'signed'].includes(c.status)) openConsent();
+  if (c && consentSeen !== c.status && ['preparing', 'precheck', 'quiz', 'passed', 'signing', 'signed'].includes(c.status)) openConsent();
   consentSeen = c?.status || null;
   if (sheetKind === 'consent') drawConsent();
   else if (sheetKind === 'term' || sheetKind === 'symptoms') sheetRedraw?.();
@@ -708,17 +708,10 @@ function drawConsent(force) {
       <button class="btn plain" data-act="cancel">Keep Discussing</button>`;
   } else if (c.status === 'quiz') {
     const passed = c.quiz.filter((q) => q.passed).length;
-    html = `<h2>Comprehension Check</h2><p class="lead">${passed} of ${c.quiz.length} correct · the patient must get all right to sign</p>
-      <div class="group">${c.quiz
-        .map((q, i) => {
-          const last = q.tries[q.tries.length - 1];
-          const cls = q.passed ? 'understood' : last && !last.ok ? 'question' : i === c.qIndex ? 'current' : '';
-          const mark = q.passed ? icon.check(14) : last && !last.ok ? '!' : '';
-          const note = last && !last.ok ? `Chose “${esc(q.options[last.choice]?.doctor)}” — explain again` : q.passed ? esc(q.options[q.answer]?.doctor) : '';
-          return `<div class="cp ${cls}"><span class="st">${mark}</span><div>${esc(q.doctor)}${note ? `<small>${note}</small>` : ''}</div></div>`;
-        })
-        .join('')}</div>
+    html = `<h2>Comprehension Check</h2><p class="lead">${passed} of ${c.quiz.length} correct · the patient must get all right to sign</p>${quizList(c)}
       <button class="btn plain" data-act="cancel">Keep Discussing</button><button class="btn plain" data-close>Hide</button>`;
+  } else if (c.status === 'passed') {
+    html = `<div class="done"><div class="mark">${icon.check(32)}</div><h2>All ${c.quiz.length} Correct</h2><p>Signing opens next.</p></div>${quizList(c)}`;
   } else if (c.status === 'review') {
     const done = c.checkpoints.filter((x) => x.ack === 'understood').length;
     const q = c.checkpoints.filter((x) => x.ack === 'question').length;
@@ -749,6 +742,18 @@ function drawConsent(force) {
     }
   };
   if (body.querySelector('#sigpad')) setupSig();
+}
+
+function quizList(c) {
+  return `<div class="group">${c.quiz
+    .map((q, i) => {
+      const last = q.tries[q.tries.length - 1];
+      const cls = q.passed ? 'understood' : last && !last.ok ? 'question' : i === c.qIndex ? 'current' : '';
+      const mark = q.passed ? icon.check(14) : last && !last.ok ? '!' : '';
+      const note = last && !last.ok ? `Chose “${esc(q.options[last.choice]?.doctor)}” — explain again` : q.passed ? esc(q.options[q.answer]?.doctor) : '';
+      return `<div class="cp ${cls}"><span class="st">${mark}</span><div>${esc(q.doctor)}${note ? `<small>${note}</small>` : ''}</div></div>`;
+    })
+    .join('')}</div>`;
 }
 
 function setupSig(clear) {

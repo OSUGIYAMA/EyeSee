@@ -9,7 +9,7 @@ import { transcribe } from './ai/openai.js';
 import { makeImage } from './ai/images.js';
 import { assess } from './ai/judge.js';
 import { offlineConsentPackage, offlineMediator, offlineHelp, RIGHTS_CHECKPOINT } from './ai/offline.js';
-import { DEMO_STEPS, DEMO_CONSENT, DEMO_AI, DEMO_SIGNATURES } from './demo/script.js';
+import { DEMO_STEPS, DEMO_CONSENT, DEMO_AI } from './demo/script.js';
 import { speak, canSpeak } from './ai/tts.js';
 import { newUnderstanding } from './room.js';
 import { prewarm } from './i18n.js';
@@ -609,22 +609,46 @@ export async function openConsent(room, { force = false } = {}) {
   room.changed();
 }
 
-/** The patient answers a comprehension question; all correct → signing. */
+const REVEAL_MS = 1500; // a correct answer stays on screen, marked, before the next question
+const PASSED_MS = 3200; // the "all correct" moment before signing opens
+
+/** The patient answers a comprehension question; all correct → a short "all correct" moment → signing. */
 export function consentAnswer(room, qid, choice) {
   const s = room.state;
   const c = s.consent;
-  if (!c || c.status !== 'quiz') return;
+  if (!c || c.status !== 'quiz' || c.reveal) return;
   const q = c.quiz.find((x) => x.id === qid);
   if (!q || q.passed || !(choice >= 0 && choice < q.options.length)) return;
   const ok = choice === q.answer;
   q.tries.push({ choice, ok, ts: new Date().toISOString() });
   q.passed = ok;
   room.event('quiz', { q: q.id, ok }, ok ? { doctor: `Quiz: patient answered correctly — ${q.doctor}`, patient: `正解：${q.patient}` } : { doctor: `Quiz: patient chose “${q.options[choice].doctor}” for “${q.doctor}”. Please explain again.`, patient: `もう一度：${q.patient}` }, 'patient');
-  if (!ok) room.emit({ type: 'alert', to: 'doctor', text: `Quiz answer was wrong — please explain: ${q.doctor}` }, 'doctor');
-  if (c.quiz.every((x) => x.passed)) {
-    startSigning(room);
-  } else if (ok) c.qIndex = c.quiz.findIndex((x) => !x.passed);
+  if (!ok) {
+    room.emit({ type: 'alert', to: 'doctor', text: `Quiz answer was wrong — please explain: ${q.doctor}` }, 'doctor');
+    return room.changed();
+  }
+  // Keep the chosen answer on screen, marked correct, then move on.
+  c.reveal = { q: q.id, choice };
   room.changed();
+  setTimeout(() => {
+    if (room.state.consent !== c || c.status !== 'quiz') return;
+    c.reveal = null;
+    if (c.quiz.every((x) => x.passed)) quizPassed(room, c);
+    else c.qIndex = c.quiz.findIndex((x) => !x.passed);
+    room.changed();
+  }, REVEAL_MS);
+}
+
+function quizPassed(room, c) {
+  c.status = 'passed';
+  c.passedAt = new Date().toISOString();
+  const n = c.quiz.length;
+  room.addEntry({ kind: 'system', speaker: 'system', text: { doctor: `Comprehension check passed · ${n} of ${n} correct`, patient: `${n}問すべて正解` }, event: { type: 'quizPassed', n } });
+  setTimeout(() => {
+    if (room.state.consent !== c || c.status !== 'passed') return;
+    startSigning(room);
+    room.changed();
+  }, PASSED_MS);
 }
 
 function startSigning(room) {
@@ -767,26 +791,21 @@ async function runDemoStep(room, step, paced) {
   if (paced && step.wait) await sleep(step.wait);
 }
 
-/** The consent step, start to finish: final check, the 3 questions, both signatures. */
+/**
+ * The consent step. The demo runs the final check, then hands over: the patient answers the
+ * three questions in the headset and both sign by hand. Auto-play finishes only once the
+ * consent is actually signed — the demo never answers or signs for anyone.
+ */
 async function runDemoConsent(room, paced) {
   const s = room.state;
-  const p = (ms) => (paced ? sleep(ms) : null);
   setStage(room, null);
   await openConsent(room, { force: true });
   await until(() => s.consent?.status === 'precheck', 30000);
-  await p(2600);
+  if (paced) await sleep(2600);
   consentProceed(room, { acknowledgeOmissions: true });
-  await p(1600);
-  for (const q of s.consent?.quiz || []) {
-    await p(1400);
-    consentAnswer(room, q.id, q.answer);
-    await p(1200);
-  }
-  await until(() => s.consent?.status === 'signing', 5000);
-  await p(1800);
-  sign(room, 'patient', DEMO_SIGNATURES.patient);
-  await p(1300);
-  sign(room, 'doctor', DEMO_SIGNATURES.doctor);
+  if (!paced) return;
+  const c = s.consent;
+  await until(() => c?.status === 'signed' || room.state !== s || room.state.consent !== c || !s.demo.playing, Infinity);
 }
 
 export async function demoNext(room) {

@@ -222,7 +222,8 @@ export function paraHeight(ctx, str, maxW, size, weight = 500, lineH = 1.38, max
 
 /**
  * Capsule button. States: glass (default), lighter on hover, white fill with dark label when
- * selected/prominent — the visionOS vocabulary.
+ * selected/prominent — the visionOS vocabulary. `tint` colours the glass; `lit` keeps a
+ * disabled button at full strength.
  */
 export function button(panel, x, y, w, h, label, action, o = {}) {
   const ctx = panel.ctx;
@@ -232,10 +233,11 @@ export function button(panel, x, y, w, h, label, action, o = {}) {
   const filled = o.selected || o.prominent;
   rr(ctx, x, y, w, h, o.r ?? h / 2);
   ctx.fillStyle = filled ? (hover || pressed ? '#e8e8ed' : '#ffffff') : o.tint ? o.tint : hover || pressed ? C.fillHover : C.fill;
-  if (!action && !filled) ctx.globalAlpha = 0.45;
+  const live = action || o.lit;
+  if (!live && !filled) ctx.globalAlpha = 0.45;
   ctx.fill();
   ctx.globalAlpha = 1;
-  const color = filled ? '#000000' : action ? C.text : C.text3;
+  const color = filled ? '#000000' : live ? C.text : C.text3;
   let size = o.size || Math.round(h * 0.4);
   font(ctx, size, o.weight || 600);
   const room = w - Math.min(h, 40);

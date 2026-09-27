@@ -92,14 +92,14 @@ That last finding is why EyeSee's understanding score cannot reach 7/10 until al
 
 ## The two-minute demo
 
-On the doctor's screen, open **⋯ → Play Demo**. One tap plays a complete visit, paced for an audience, in about 1:30–1:50:
+On the doctor's screen, open **⋯ → Play Demo**. One tap plays the conversation, paced for an audience, in about 1:30–1:50. Then the demo hands over to the people in the room:
 
 1. The patient: "My stomach has a nagging ache after meals." The nagging-ache sensation lands on the upper stomach of the body.
 2. The doctor finds a small tumor in the lower stomach and recommends a distal gastrectomy. The stomach model shows each step: tumor, cutting, removal, reconnection.
 3. The doctor explains anesthesia and the risks. The patient asks "Will I be able to eat normally?", and the model shows eating after recovery.
 4. The doctor asks the AI "Did I forget anything?", and the AI points out the missing alternatives. **The understanding score is held at 6 until this point.**
 5. The doctor explains the alternatives and asks the patient to explain the plan back. The score passes 7.
-6. Consent: the final check in the chat, the 3-question check, and both signatures.
+6. Consent: the final check appears in the chat. Then **the patient answers the three questions in the headset**. Each correct answer is marked, and all three correct shows an "all correct" screen. **Both sign by hand**: the patient in the headset, the doctor on the console. The demo never answers or signs for anyone. It ends only when the consent is signed.
 
 Each of the doctor's lines waits until the headset has finished reading it aloud. The translations are prepared in advance and the audio is cached, so the demo runs the same way every time; set `EYESEE_DEMO_LIVE=1` to send the lines through the live AI instead. **Next Step** in the same menu steps through by hand.
 

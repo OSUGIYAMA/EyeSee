@@ -59,9 +59,21 @@ send(patient, { type: 'consentAnswer', q: quiz[0].id, choice: (quiz[0].answer + 
 await until(() => doctor.events.some((e) => e.type === 'alert'));
 check(doctor.events.some((e) => e.type === 'alert'), 'a wrong answer alerts the doctor');
 check(patient.state.consent.status === 'quiz', 'a wrong answer does not unlock signing');
-for (const q of quiz) { send(patient, { type: 'consentAnswer', q: q.id, choice: q.answer }); await sleep(120); }
+send(patient, { type: 'consentAnswer', q: quiz[1].id, choice: quiz[1].answer });
+await sleep(150);
+check(patient.state.consent.reveal?.q === quiz[1].id && patient.state.consent.reveal.choice === quiz[1].answer, 'a correct answer stays on screen, marked');
+send(patient, { type: 'consentAnswer', q: quiz[0].id, choice: quiz[0].answer });
+await sleep(150);
+check(!patient.state.consent.quiz[0].passed, 'no answers are taken while a correct one is showing');
+for (const q of quiz) {
+  await until(() => !patient.state.consent.reveal);
+  send(patient, { type: 'consentAnswer', q: q.id, choice: q.answer });
+  await until(() => patient.state.consent.quiz.find((x) => x.id === q.id).passed);
+}
+await until(() => patient.state.consent?.status === 'passed');
+check(patient.state.consent?.status === 'passed' && patient.state.entries.some((e) => e.event?.type === 'quizPassed'), 'all three correct → an "all correct" moment, also in the chat');
 await until(() => patient.state.consent?.status === 'signing');
-check(patient.state.consent?.status === 'signing', 'all three correct → signing');
+check(patient.state.consent?.status === 'signing', 'then signing opens');
 check(patient.state.entries.some((e) => e.event?.type === 'summary'), 'what is being agreed to appears in the chat');
 const px = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
 send(patient, { type: 'sign', dataUrl: px });
