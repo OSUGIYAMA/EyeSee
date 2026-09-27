@@ -100,8 +100,8 @@ export function rr(ctx, x, y, w, h, r) {
 export function glass(ctx, x, y, w, h, r, { tint = 0 } = {}) {
   rr(ctx, x, y, w, h, r);
   const g = ctx.createLinearGradient(0, y, 0, y + h);
-  g.addColorStop(0, `rgba(${92 + tint},${92 + tint},${100 + tint},0.62)`);
-  g.addColorStop(1, `rgba(${58 + tint},${58 + tint},${64 + tint},0.66)`);
+  g.addColorStop(0, `rgba(${86 + tint},${86 + tint},${94 + tint},0.74)`);
+  g.addColorStop(1, `rgba(${54 + tint},${54 + tint},${60 + tint},0.78)`);
   ctx.fillStyle = g;
   ctx.fill();
   rr(ctx, x + 1, y + 1, w - 2, h - 2, r - 1);

@@ -21,14 +21,16 @@ const now = () => performance.now() / 1000;
 
 let pack = {};
 let packEn = {};
-let packLang = null;
+let packLang = null; // set only once the pack has arrived, so every drawing keyed on it redraws
+let packWanted = null;
 async function loadPack(lang) {
-  if (packLang === lang) return;
-  packLang = lang;
+  if (packWanted === lang) return;
+  packWanted = lang;
   const [p, en] = await Promise.all([fetch(`/api/i18n/${lang}`).then((r) => r.json()), Object.keys(packEn).length ? packEn : fetch('/api/i18n/en').then((r) => r.json())]);
-  if (packLang !== lang) return;
+  if (packWanted !== lang) return;
   pack = p;
   packEn = en;
+  packLang = lang;
   document.documentElement.lang = lang;
   layoutCache.clear();
   intro();
@@ -137,23 +139,23 @@ class Win {
 // ================================================================ windows
 
 const conv = new Panel({ w: 1.2, h: 0.8, ppm: 1100, name: 'conversation' });
-place(conv.mesh, 0, 0.03, -1.3);
+place(conv.mesh, 0, 0.08, -1.3);
 const grabber = new Panel({ w: 0.12, h: 0.022, ppm: 1600, name: 'grabber' });
-place(grabber.mesh, 0, -0.395, -1.29);
+place(grabber.mesh, 0, -0.345, -1.29);
 const gloss = new Panel({ w: 0.6, h: 0.8, ppm: 1100, name: 'glossary' });
-place(gloss.mesh, 0.99, 0.03, -1.02, -0.78);
+place(gloss.mesh, 0.99, 0.08, -1.02, -0.78);
 const sheet = new Panel({ w: 0.64, h: 0.36, ppm: 1300, name: 'sheet' });
-place(sheet.mesh, 0, -0.3, -0.56, 0, -0.5);
+place(sheet.mesh, 0, -0.34, -0.56, 0, -0.5);
 const toolbar = new Panel({ w: 0.34, h: 0.075, ppm: 1500, name: 'toolbar' });
-place(toolbar.mesh, -0.07, -0.47, -0.4, 0.08, -0.85);
+place(toolbar.mesh, -0.07, -0.5, -0.38, 0.08, -0.9);
 const pic = new Panel({ w: 0.5, h: 0.64, ppm: 1100, name: 'picture' });
-place(pic.mesh, -0.5, 0.02, -0.98, 0.45);
+place(pic.mesh, -0.5, 0.06, -0.98, 0.45);
 const partInfo = new Panel({ w: 0.44, h: 0.13, ppm: 1200, name: 'partInfo' });
 const stageAnchor = place(new THREE.Group(), -0.74, 0.0, -0.86, 0.7);
 stageAnchor.add(partInfo.mesh);
 partInfo.mesh.position.set(0, -0.3, 0);
 const bodyAnchor = place(new THREE.Group(), -0.95, 0, -1.3, 0.62, 0, floorRoot);
-const painGrid = place(new THREE.Group(), 0, -0.02, -0.62);
+const painGrid = place(new THREE.Group(), 0, -0.04, -0.62);
 
 const glossWin = new Win(gloss);
 const sheetWin = new Win(sheet, { scaleFrom: 0.94 });
@@ -183,7 +185,7 @@ aiRing.userData.noHit = true;
 aiBtn.add(aiRing);
 aiBtn.userData.radius = 0.05;
 aiBtn.userData.face = 0.036;
-place(aiBtn, 0.24, -0.46, -0.42, -0.3, -0.6);
+place(aiBtn, 0.24, -0.49, -0.4, -0.3, -0.7);
 let aiHint = null;
 function setAiHint(on) {
   if (!aiHint && on) {
@@ -696,7 +698,7 @@ function sheetMode() {
   if (localFeelings) return 'feelings';
   const st = S.stage;
   if (!st) return null;
-  if (st.tool === 'model') return st.modelId === 'artery' ? 'artery' : null;
+  if (st.tool === 'model') return stageMeta?.steps?.length && stageMeta.id === st.modelId ? 'procedure' : null;
   if (st.tool === 'image') return null;
   return st.tool;
 }
@@ -763,11 +765,11 @@ function drawSheet() {
       return;
     }
 
-    if (mode === 'artery') {
+    if (mode === 'procedure') {
       const i = st.step || 0;
-      const total = stageMeta?.steps?.length || 5;
+      const total = stageMeta.steps.length;
       text(ctx, `${t('step')} ${i + 1} / ${total}`, X, 44, 24, C.text3, 600);
-      para(ctx, tk(`step.artery.${i}`, ''), X, 88, W - X * 2, 32, C.text, 600, 1.4, 3);
+      para(ctx, tk(`step.${st.modelId}.${i}`, stageMeta.steps[i]?.en || ''), X, 88, W - X * 2, 32, C.text, 600, 1.4, 3);
       button(p, X, H - 104, 120, 64, '‹', i > 0 ? () => link.send({ type: 'modelStep', step: i - 1 }) : null, { id: 'prev', size: 40, weight: 400 });
       button(p, W - X - 120, H - 104, 120, 64, '›', i < total - 1 ? () => link.send({ type: 'modelStep', step: i + 1 }) : null, { id: 'next', size: 40, weight: 400 });
       return;

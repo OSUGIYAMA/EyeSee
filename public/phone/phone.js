@@ -292,7 +292,7 @@ function renderStage() {
       }
     }
     if (st.viewBy !== 'doctor') viewer.setView(st.yaw || 0, st.pitch || 0);
-    if (st.tool === 'model' && id !== 'artery') {
+    if (st.tool === 'model' && !obj.meta?.steps?.length) {
       const sig = `${id}:${st.highlight}`;
       if (extra.dataset.sig !== sig) {
         extra.dataset.sig = sig;
@@ -303,9 +303,11 @@ function renderStage() {
   });
   if (st.tool === 'body') {
     extra.innerHTML = `<div class="pills">${(st.points || []).map((p) => `<span class="pill">${esc(p.region.label.en)}</span>`).join('')}${st.points?.length ? '<button class="pill" data-act="clear">Clear</button>' : ''}</div>`;
-  } else if (id === 'artery') {
-    import('/shared/models/artery.js').then(({ meta }) => {
+  } else {
+    import(`/shared/models/${id}.js`).then(({ meta }) => {
+      if (!meta.steps?.length || S.stage !== st) return;
       const n = st.step || 0;
+      extra.dataset.steps = meta.steps.length;
       extra.innerHTML = `<div class="steps"><button class="circle" data-act="prev" aria-label="Previous">${icon.chevronLeft(18)}</button><p><b>${n + 1} of ${meta.steps.length}</b> · ${esc(meta.steps[n]?.en || '')}</p><button class="circle" data-act="next" aria-label="Next">${icon.chevronRight(18)}</button></div>`;
     });
   }
@@ -316,7 +318,7 @@ $('#stageBody').addEventListener('click', (e) => {
   if (!b || !st) return;
   if (b.dataset.part) link.send({ type: 'modelHighlight', part: b.dataset.part === st.highlight ? null : b.dataset.part });
   if (b.dataset.act === 'prev') link.send({ type: 'modelStep', step: Math.max(0, (st.step || 0) - 1) });
-  if (b.dataset.act === 'next') link.send({ type: 'modelStep', step: Math.min(4, (st.step || 0) + 1) });
+  if (b.dataset.act === 'next') link.send({ type: 'modelStep', step: Math.min(+(b.closest('.extra')?.dataset.steps || 5) - 1, (st.step || 0) + 1) });
   if (b.dataset.act === 'clear') link.send({ type: 'bodyClear' });
 });
 $('#stageClose').onclick = () => link.send({ type: 'stage', stage: null });
