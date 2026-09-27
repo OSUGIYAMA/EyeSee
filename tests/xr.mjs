@@ -185,7 +185,7 @@ const bodyResult = await quest.evaluate(async () => {
 });
 check(/chest/.test(bodyResult), `pointing at the body's chest records a pain location (${bodyResult})`);
 
-await quest.screenshot({ path: path.resolve(process.env.SHOT_DIR || '.', 'xr-test.png') });
+await quest.screenshot({ path: path.resolve(process.env.SHOT_DIR || 'tests/out', 'xr-test.png') });
 await browser.close();
 if (logs.length) console.log(logs.join('\n'));
 console.log(failures ? `\n${failures} check(s) failed` : '\nall XR checks passed');
