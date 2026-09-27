@@ -12,7 +12,7 @@ fs.mkdirSync(DIR, { recursive: true });
 // Interface text in the headset. Short on purpose: the conversation is the interface.
 const UI = {
   en: {
-    tagline: 'See what your doctor means.',
+    tagline: 'An app that helps you and your doctor understand each other and agree on your care together.',
     intro1: 'Speak in the language that is easiest for you.',
     intro2: "The doctor's words appear in front of you.",
     intro3: 'Hold the AI button to ask anything.',
@@ -77,7 +77,7 @@ const UI = {
     agreeing: 'You are agreeing to',
   },
   ja: {
-    tagline: '医師の言葉が、わかる。',
+    tagline: '医師とあなたが、おたがいに理解し、納得したうえで同意できるようにするアプリです。',
     intro1: 'いちばん話しやすい言葉で話してください。',
     intro2: '医師の言葉が、目の前に表示されます。',
     intro3: 'AIボタンを押しながら、何でも聞けます。',
