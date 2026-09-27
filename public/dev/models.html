@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>EyeSee model preview</title>
+<style>
+  html,body{margin:0;height:100%;background:#0e1420;color:#dfe7f5;font:14px system-ui,sans-serif}
+  #hud{position:fixed;left:12px;top:10px;right:12px;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  #hud b{font-size:16px} #hud span{opacity:.75}
+  body.light{background:#cfd6de;color:#1b2533}
+</style>
+<script type="importmap">{"imports":{"three":"/vendor/three/build/three.module.js","three/addons/":"/vendor/three/examples/jsm/"}}</script>
+</head>
+<body>
+<div id="hud"></div>
+<script type="module">
+// Query params: model=<id>  hl=<partId>  step=<n>  bg=light  rot=0 (disable autorotate)  t=<seconds to pre-advance animation>
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const q = new URLSearchParams(location.search);
+const id = q.get('model') || 'heart';
+if (q.get('bg') === 'light') document.body.classList.add('light');
+const mod = await import(`/shared/models/${id}.js`);
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(devicePixelRatio);
+renderer.setSize(innerWidth, innerHeight);
+document.body.append(renderer.domElement);
+const scene = new THREE.Scene();
+scene.add(new THREE.HemisphereLight(0xffffff, 0x445566, 1.2));
+const key = new THREE.DirectionalLight(0xffffff, 2.2); key.position.set(2, 3, 4); scene.add(key);
+const rim = new THREE.DirectionalLight(0x88aaff, 1.0); rim.position.set(-3, 1, -2); scene.add(rim);
+
+const model = mod.create();
+scene.add(model.object);
+const box = new THREE.Box3().setFromObject(model.object);
+const size = box.getSize(new THREE.Vector3()), center = box.getCenter(new THREE.Vector3());
+const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.01, 100);
+const dist = Math.max(size.x, size.y, size.z) * 1.9;
+camera.position.set(center.x, center.y + size.y * 0.1, center.z + dist);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.copy(center); controls.autoRotate = q.get('rot') !== '0'; controls.autoRotateSpeed = 1.2;
+if (q.get('hl')) model.highlight(q.get('hl'));
+if (q.get('step') && model.setStep) model.setStep(+q.get('step'));
+if (q.get('t')) { const T = +q.get('t'); for (let s = 0; s < T; s += 1 / 30) model.update(1 / 30, s); }
+
+document.getElementById('hud').innerHTML =
+  `<b>${mod.meta.label.en} / ${mod.meta.label.ja}</b><span>${model.parts.length} parts: ${model.parts.map(p => p.id).join(', ')}</span>` +
+  `<span>tris: ${(() => { let n = 0; model.object.traverse(o => { if (o.isMesh) n += (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3; }); return Math.round(n); })()}</span>`;
+
+// click to highlight
+const ray = new THREE.Raycaster();
+renderer.domElement.addEventListener('click', (e) => {
+  ray.setFromCamera({ x: e.clientX / innerWidth * 2 - 1, y: -(e.clientY / innerHeight) * 2 + 1 }, camera);
+  const hit = ray.intersectObject(model.object, true)[0];
+  let o = hit?.object; while (o && !o.userData.partId) o = o.parent;
+  model.highlight(o?.userData.partId ?? null);
+  if (hit && model.regionAt) console.log('region', JSON.stringify(model.regionAt(model.object.worldToLocal(hit.point.clone()), hit.object)));
+  console.log('part', o?.userData.partId);
+});
+const clock = new THREE.Clock();
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(clock.getDelta(), 0.05);
+  model.update(dt, clock.elapsedTime);
+  controls.update();
+  renderer.render(scene, camera);
+});
+addEventListener('resize', () => { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); });
+window.__model = model;
+</script>
+</body>
+</html>

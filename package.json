@@ -1,0 +1,31 @@
+{
+  "name": "eyesee",
+  "version": "0.1.0",
+  "private": true,
+  "description": "EyeSee — a shared understanding interface for doctor–patient conversations and informed consent (phone + Meta Quest WebXR).",
+  "type": "module",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "test": "node tests/e2e.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.128.0",
+    "@anthropic-ai/vertex-sdk": "^0.19.11",
+    "@google/genai": "^2.24.0",
+    "dotenv": "^18.0.4",
+    "express": "^5.2.1",
+    "google-auth-library": "^10.9.1",
+    "openai": "^6.49.0",
+    "qrcode": "^1.5.4",
+    "selfsigned": "^5.5.0",
+    "three": "^0.186.1",
+    "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.63.0"
+  }
+}

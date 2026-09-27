@@ -1,0 +1,12 @@
+node_modules/
+data/
+.env
+tests/out/
+secrets/
+*.pem
+*service-account*.json
+recruit-hackathon-*.json
+.env.*
+!.env.example
+.DS_Store
+tests/scratch/
