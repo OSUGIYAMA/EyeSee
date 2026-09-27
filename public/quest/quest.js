@@ -8,6 +8,7 @@ import { PAIN_TYPES, FEELINGS, MODELS, LANGUAGES } from '/shared/catalog.js';
 import { readFor } from '/shared/entries.js';
 import { Panel, C, glass, rr, text, measure, para, paraHeight, button, spinner, dots, orb, capsuleMesh } from './panel.js';
 import { Interact } from './interact.js';
+import { SymptomLayer, symptomLine } from '/shared/symptoms.js';
 
 const { room } = params();
 localStorage.setItem('eyesee.room', room);
@@ -146,8 +147,8 @@ const gloss = new Panel({ w: 0.6, h: 0.8, ppm: 1100, name: 'glossary' });
 place(gloss.mesh, 0.99, 0.08, -1.02, -0.78);
 const sheet = new Panel({ w: 0.64, h: 0.36, ppm: 1300, name: 'sheet' });
 place(sheet.mesh, 0, -0.34, -0.56, 0, -0.5);
-const toolbar = new Panel({ w: 0.34, h: 0.075, ppm: 1500, name: 'toolbar' });
-place(toolbar.mesh, -0.07, -0.5, -0.38, 0.08, -0.9);
+const toolbar = new Panel({ w: 0.46, h: 0.075, ppm: 1500, name: 'toolbar' });
+place(toolbar.mesh, -0.1, -0.5, -0.38, 0.1, -0.9);
 const pic = new Panel({ w: 0.5, h: 0.64, ppm: 1100, name: 'picture' });
 place(pic.mesh, -0.5, 0.06, -0.98, 0.45);
 const partInfo = new Panel({ w: 0.44, h: 0.13, ppm: 1200, name: 'partInfo' });
@@ -372,7 +373,8 @@ function convItems() {
     else if (e.kind === 'event') {
       const ty = e.event.type;
       if (ty === 'confused' && e.help?.patientExplanation) items.push({ e, type: 'help' });
-      else if (['pain', 'body', 'feeling', 'signature'].includes(ty)) items.push({ e, type: 'caption' });
+      else if (ty === 'symptom' && !e.removed) items.push({ e, type: 'caption' });
+      else if (['feeling', 'signature'].includes(ty)) items.push({ e, type: 'caption' });
     } else if (e.kind === 'system' && ['language', 'signed'].includes(e.event?.type)) items.push({ e, type: 'caption' });
   }
   if (S.speaking?.doctor) items.push({ type: 'typing-doctor', e: { id: 'typing-doctor', v: 0 } });
@@ -382,6 +384,7 @@ function convItems() {
 
 function captionText(e) {
   const ev = e.event || {};
+  if (ev.type === 'symptom') return `${t('pain')}  ${symptomLine(ev, { lang: S.patientLang, pack })}`;
   if (ev.type === 'pain') return `${t('pain')}  ${tk(`pain.${ev.id}.name`, '')}${ev.intensity != null ? ` · ${ev.intensity}/10` : ''}`;
   if (ev.type === 'body') return `${t('whereItHurts')}  ${(ev.regions || []).map((r) => tk(`part.body.${r.id}.label`, r.label?.en || '')).join(' · ')}`;
   if (ev.type === 'feeling') return `${t('feeling')}  ${tk(`feeling.${ev.id}`, '')}`;
@@ -720,49 +723,52 @@ function drawSheet() {
     const X = 56;
     const title = (s, y = 50) => text(ctx, s, X, y, 38, C.text, 700);
 
-    if (mode === 'pain') {
-      const pt = PAIN_TYPES.find((x) => x.id === st.type);
-      if (!pt) {
+    if (mode === 'body') {
+      // Where → how it feels → how strong, one spot at a time.
+      const sym = activeSymptom();
+      if (!sym) {
+        title(t('whereTitle'), 44);
+        let y = 120;
+        for (const x of (S.symptoms || []).slice(-3)) {
+          text(ctx, symptomLine(x, { lang: S.patientLang, pack }), X, y, 26, C.text2, 500);
+          y += 42;
+        }
+        button(p, X, H - 100, 200, 64, t('feelingsShort'), () => link.send({ type: 'openTool', tool: 'feelings' }), { id: 'feel', size: 24 });
+        button(p, W - X - 200, H - 100, 200, 64, t('done'), () => link.send({ type: 'openTool', tool: 'body' }), { id: 'close', size: 24, prominent: true });
+        return;
+      }
+      const region = tk(`part.body.${sym.region.id}.label`, sym.region.label?.en || '');
+      if (!sym.quality) {
+        text(ctx, region, X, H - 206, 26, C.text3, 600);
         title(t('painTitle'), H - 170);
         const hp = PAIN_TYPES.find((x) => x.id === hoverPain);
         if (hp) para(ctx, tk(`pain.${hp.id}.hint`), X, H - 108, W - X * 2, 28, C.text2, 500, 1.4, 2);
         return;
       }
-      title(t('painStrength'), 44);
-      const bw = 64, gap = (W - X * 2 - bw * 11) / 10;
-      for (let v = 0; v <= 10; v++) button(p, X + v * (bw + gap), 130, bw, bw, String(v), () => link.send({ type: 'painIntensity', v }), { id: `v${v}`, size: 30, selected: st.intensity === v });
-      text(ctx, t('painNone'), X, 214, 22, C.text3, 500);
-      text(ctx, t('painWorst'), W - X, 214, 22, C.text3, 500, 'right');
+      if (sym.intensity == null) {
+        text(ctx, `${region} · ${tk(`pain.${sym.quality}.name`)}`, X, 40, 24, C.text3, 600);
+        title(t('painStrength'), 76);
+        const bw = 64, gap = (W - X * 2 - bw * 11) / 10;
+        for (let v = 0; v <= 10; v++) button(p, X + v * (bw + gap), 150, bw, bw, String(v), () => link.send({ type: 'symptomIntensity', id: sym.id, v }), { id: `v${v}`, size: 30 });
+        text(ctx, t('painNone'), X, 232, 22, C.text3, 500);
+        text(ctx, t('painWorst'), W - X, 232, 22, C.text3, 500, 'right');
+        return;
+      }
+      title(symptomLine(sym, { lang: S.patientLang, pack }), 60);
+      button(p, X, H - 100, 240, 64, t('another'), () => link.send({ type: 'symptomDone' }), { id: 'another', size: 24 });
+      button(p, W - X - 200, H - 100, 200, 64, t('done'), () => (link.send({ type: 'symptomDone' }), link.send({ type: 'openTool', tool: 'body' })), { id: 'close', size: 24, prominent: true });
       return;
     }
 
     if (mode === 'feelings') {
       title(t('feelingsTitle'), 44);
-      if (localFeelings) button(p, W - X - 150, 36, 150, 60, t('done'), () => ((localFeelings = false), invalidate()), { id: 'done', size: 24 });
+      button(p, W - X - 150, 36, 150, 60, t('done'), () => (localFeelings ? ((localFeelings = false), invalidate()) : link.send({ type: 'openTool', tool: 'feelings' })), { id: 'done', size: 24 });
       const chosen = new Set([...(st?.tool === 'feelings' ? st.selected || [] : []), ...recentFeelings()]);
       const cols = 4, gw = (W - X * 2 - (cols - 1) * 14) / cols, gh = 62;
       FEELINGS.forEach((f, i) => {
         const x = X + (i % cols) * (gw + 14), y = 120 + Math.floor(i / cols) * (gh + 14);
         button(p, x, y, gw, gh, tk(`feeling.${f.id}`, f.en), () => link.send({ type: 'feeling', id: f.id }), { id: `f:${f.id}`, size: 23, selected: chosen.has(f.id) });
       });
-      return;
-    }
-
-    if (mode === 'body') {
-      title(t('bodyTitle'), 44);
-      let x = X;
-      for (const pt of st.points || []) {
-        const label = tk(`part.body.${pt.region.id}.label`, pt.region.label?.en || '');
-        const w = measure(ctx, label, 24, 600) + 44;
-        if (x + w > W - X) break;
-        rr(ctx, x, 130, w, 54, 27);
-        ctx.fillStyle = C.fill;
-        ctx.fill();
-        text(ctx, label, x + 22, 144, 24, C.text, 600);
-        x += w + 12;
-      }
-      if (st.highlight) text(ctx, t('here'), X, 212, 26, C.orange, 600);
-      if (st.points?.length) button(p, X, H - 104, 180, 60, t('clear'), () => link.send({ type: 'bodyClear' }), { id: 'clear', size: 24 });
       return;
     }
 
@@ -837,7 +843,7 @@ function drawSheet() {
       ctx.stroke();
       text(ctx, t('recorded'), W / 2, H / 2 + 20, 30, C.text, 700, 'center');
     }
-  }, JSON.stringify([mode, st, c && { s: c.status, i: c.index, a: c.checkpoints.map((x) => x.ack), g: Object.keys(c.signatures || {}) }, hoverPain, strokes.length, packLang, fontsReady, stageMeta?.id, mode.startsWith('consent-pre') ? Math.floor(n * 10) : 0]));
+  }, JSON.stringify([mode, st, S.symptoms, c && { s: c.status, i: c.index, a: c.checkpoints.map((x) => x.ack), g: Object.keys(c.signatures || {}) }, hoverPain, strokes.length, packLang, fontsReady, stageMeta?.id, mode.startsWith('consent-pre') ? Math.floor(n * 10) : 0]));
   return animating;
 }
 
@@ -928,9 +934,10 @@ function drawToolbar() {
     const { W, H } = p;
     glass(c, 0, 0, W, H, H / 2);
     const segs = [
-      { id: 'mic', w: 130 },
-      { id: 'isee', w: (W - 130) / 2 },
-      { id: 'no', w: (W - 130) / 2 },
+      { id: 'mic', w: 120 },
+      { id: 'tell', w: (W - 120) / 3 },
+      { id: 'isee', w: (W - 120) / 3 },
+      { id: 'no', w: (W - 120) / 3 },
     ];
     let x = 0;
     segs.forEach((s, i) => {
@@ -945,18 +952,18 @@ function drawToolbar() {
       const col = pressed ? '#000' : C.text;
       if (s.id === 'mic') drawMic(c, x + s.w / 2, H / 2, micOn, micLevel, col);
       else {
-        const label = s.id === 'isee' ? t('iSee') : t('notSure');
+        const label = s.id === 'tell' ? t('tell') : s.id === 'isee' ? t('iSee') : t('notSure');
         const lw = measure(c, label, 32, 600);
         const off = pressed ? 18 : 0;
         text(c, label, x + s.w / 2 + off, H / 2 - 18, 32, col, 600, 'center');
         if (pressed) {
           const cx = x + s.w / 2 + off - lw / 2 - 26;
-          c.strokeStyle = s.id === 'isee' ? C.green : C.orange;
+          c.strokeStyle = s.id === 'no' ? C.orange : C.green;
           c.lineWidth = 5;
           c.lineCap = 'round';
           c.lineJoin = 'round';
           c.beginPath();
-          if (s.id === 'isee') c.moveTo(cx - 10, H / 2), c.lineTo(cx - 2, H / 2 + 8), c.lineTo(cx + 12, H / 2 - 9);
+          if (s.id !== 'no') c.moveTo(cx - 10, H / 2), c.lineTo(cx - 2, H / 2 + 8), c.lineTo(cx + 12, H / 2 - 9);
           else c.arc(cx, H / 2, 9, 0, Math.PI * 2);
           c.stroke();
         }
@@ -995,6 +1002,7 @@ function drawMic(c, cx, cy, on, level, col) {
 
 function onToolbar(id) {
   if (id === 'mic') return toggleMic();
+  if (id === 'tell') return link.send({ type: 'openTool', tool: 'body' });
   ack = { id, t: now() };
   link.send({ type: id === 'isee' ? 'isee' : 'confused', entryId: selected });
   selected = null;
@@ -1069,6 +1077,7 @@ let targetYaw = 0, targetPitch = 0;
 
 function clearStage() {
   if (stageObj) {
+    stageObj.layer?.dispose();
     (stageHolder || stageObj.object).removeFromParent();
     stageObj.dispose?.();
   }
@@ -1087,9 +1096,15 @@ function fitHolder(object, size) {
   return holder;
 }
 
+function activeSymptom() {
+  const id = S.stage?.tool === 'body' ? S.stage.active : null;
+  return id ? (S.symptoms || []).find((x) => x.id === id) : null;
+}
+
 function syncStage() {
   const st = S.consent ? null : S.stage;
-  syncPain(st?.tool === 'pain' ? st : null);
+  const sym = st?.tool === 'body' ? activeSymptom() : null;
+  syncPain(sym && !sym.quality ? sym : null);
   const key = st && (st.tool === 'model' || st.tool === 'body') ? `${st.tool}:${st.modelId || ''}` : '';
   if (key !== stageKey) {
     stageKey = key;
@@ -1118,6 +1133,7 @@ function syncStage() {
               const local = stageObj.object.worldToLocal(hit.point.clone());
               const region = stageObj.regionAt?.(local, hit.object);
               if (region) link.send({ type: 'bodyPoint', region: { id: region.id, label: region.label }, point: local.toArray().map((v) => +v.toFixed(3)) });
+              invalidate();
             } else {
               let o = hit.object;
               while (o && !o.userData.partId) o = o.parent;
@@ -1160,13 +1176,10 @@ function applyStage(st) {
         para(c, info, 36, 28, p.W - 72, 26, C.text2, 500, 1.4, 3);
       }, info + fontsReady);
   }
-  if (st.tool === 'body' && stageObj.addMarker) {
-    const sig = (st.points || []).map((p) => p.id).join(',');
-    if (stageObj._pts !== sig) {
-      stageObj.clearMarkers();
-      for (const p of st.points || []) if (p.point) stageObj.addMarker(new THREE.Vector3(...p.point));
-      stageObj._pts = sig;
-    }
+  if (st.tool === 'body') {
+    stageObj.layer ||= new SymptomLayer(stageObj, painVizMod?.createPainViz);
+    if (!stageObj.layer.create && painVizMod) stageObj.layer.create = painVizMod.createPainViz;
+    stageObj.layer.sync(S.symptoms || [], st.active);
   }
 }
 
@@ -1175,6 +1188,7 @@ let painOrbs = null;
 let painVizMod = null;
 let painLoading = false;
 async function syncPain(st) {
+  if (painGrid.visible !== !!st) tween(conv.material, { opacity: st ? 0.18 : 1 }, 260);
   painGrid.visible = !!st;
   if (!st) return;
   if (!painOrbs) {
@@ -1202,12 +1216,12 @@ async function syncPain(st) {
           tween(o.g.scale, h ? { x: 1.12, y: 1.12, z: 1.12 } : { x: 1, y: 1, z: 1 }, 160);
           invalidate();
         },
-        onPress: () => link.send({ type: 'painType', id: pt.id }),
+        onPress: () => link.send({ type: 'symptomQuality', id: activeSymptom()?.id, quality: pt.id }),
       });
       return o;
     });
   }
-  const chosen = st.type;
+  const chosen = null; // the chosen sensation moves onto the body itself
   for (const o of painOrbs) {
     const name = tk(`pain.${o.pt.id}.name`, o.pt.ja);
     if (o.label?.text !== name) {
@@ -1283,6 +1297,7 @@ function frame() {
 
   if (stageObj) {
     stageObj.update?.(dt, n);
+    stageObj.layer?.update(dt, n);
     if (stageHolder) {
       stageHolder.rotation.y += (targetYaw - stageHolder.rotation.y) * 0.12;
       stageHolder.rotation.x += (targetPitch - stageHolder.rotation.x) * 0.12;

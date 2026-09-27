@@ -1,0 +1,46 @@
+// Screenshots of the symptom flow in the headset preview + the doctor's symptom map.
+// usage: node tests/symptom-shot.mjs <base> <outPrefix>
+import { chromium } from 'playwright-core';
+const [base, out] = process.argv.slice(2);
+const room = `sym${Date.now() % 10000}`;
+const browser = await chromium.launch({ executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'] });
+const errors = [];
+const phone = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
+const quest = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+for (const p of [phone, quest]) p.on('pageerror', (e) => errors.push(e.message));
+await phone.goto(`${base}/phone?room=${room}`);
+await quest.goto(`${base}/quest?room=${room}&preview`);
+await quest.waitForTimeout(1500);
+const qsend = (m) => quest.evaluate((m) => window.__eyesee.link.send(m), m);
+const view = (y, p) => quest.evaluate(([y, p]) => window.__setView(y, p), [y, p]);
+await qsend({ type: 'openTool', tool: 'body' }); // the patient starts telling, unprompted
+await quest.waitForTimeout(1500);
+await qsend({ type: 'bodyPoint', region: { id: 'chest-center', label: { en: 'Center of chest', ja: '胸の中央' } }, point: [0, 1.3, 0.13] });
+await quest.waitForTimeout(1500);
+await view(0, -14);
+await quest.waitForTimeout(500);
+await quest.screenshot({ path: `${out}-1-sensation.png` });
+const id = await quest.evaluate(() => window.__eyesee.state.symptoms[0].id);
+await qsend({ type: 'symptomQuality', id, quality: 'shimetsuke' });
+await quest.waitForTimeout(900);
+await view(0, -30);
+await quest.waitForTimeout(400);
+await quest.screenshot({ path: `${out}-2-strength.png` });
+await qsend({ type: 'symptomIntensity', id, v: 7 });
+await qsend({ type: 'symptomDone' });
+await qsend({ type: 'bodyPoint', region: { id: 'upper-arm-left', label: { en: 'Left upper arm', ja: '左上腕' } }, point: [0.24, 1.22, 0.04] });
+await quest.waitForTimeout(400);
+const id2 = await quest.evaluate(() => window.__eyesee.state.symptoms[1].id);
+await qsend({ type: 'symptomQuality', id: id2, quality: 'zuun' });
+await qsend({ type: 'symptomIntensity', id: id2, v: 4 });
+await quest.waitForTimeout(1200);
+await view(34, -8);
+await quest.waitForTimeout(800);
+await quest.screenshot({ path: `${out}-3-body.png` });
+await phone.waitForTimeout(800);
+await phone.screenshot({ path: `${out}-4-phone.png` });
+await phone.click('#symptoms');
+await phone.waitForTimeout(2500);
+await phone.screenshot({ path: `${out}-5-phone-map.png` });
+await browser.close();
+console.log(errors.join('\n') || '(no page errors)');

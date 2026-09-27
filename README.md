@@ -25,6 +25,11 @@ room, and it is where legal disputes begin. If shared understanding works there,
 extends to law, insurance, immigration procedures, renting a home and financial contracts: anywhere it
 matters that people truly understand before they press "Yes".
 
+### Information made physical, in both directions
+
+- **The patient holds the information about the illness**: where it hurts and what it feels like. That is what VR should make physical. The patient points at a life-size body and picks the sensation they feel from animated orbs, so "it hurts here, like this, this much" lands on the body itself where the doctor can see it.
+- **The doctor holds the information about the decision.** The patient must truly understand it mainly at informed consent. For everything else, such as how to take a medication, a faithful translation plus the key points is enough.
+
 ## ビジョン
 
 **最高レベルの意思決定である、インフォームド・コンセントから始める。**
@@ -34,6 +39,11 @@ EyeSeeが作っているのは医療用VRではなく、ほかの領域へ広げ
 狙っている問題の形は一つです。Aが説明した、Bが違う意味で理解した、そのまま重大な意思決定をした、後から紛争になる。
 インフォームド・コンセントは、その最後の局面です。やり直しのきかない決定の直前で、医師と患者の情報格差がいちばん大きく、訴訟が生まれる場所でもあります。
 医療でこれが機能するなら、将来的には法律、保険、移民手続き、家を借りる契約、金融契約など、「Yesを押す前に本当に理解していること」が重要な領域へ広げられます。
+
+### 情報を、両方向にフィジカルにする
+
+- **病気の情報を持っているのは患者です。** どこが痛いのか、どんな感じなのか。VRでフィジカルにすべきなのはここです。患者は等身大の人体を指さし、動く球体から感覚を選ぶ。「ここが、こういう感じで、これくらい痛い」が体の上に置かれ、医師がそのまま把握できます。
+- **意思決定の情報を持っているのは医師です。** 患者がそれを本当に理解しなければならないのは、主にインフォームド・コンセントの場面です。薬の説明などは、正確な翻訳と大事なポイントがあれば十分です。
 
 ### Who it is for / 誰のために
 
@@ -64,7 +74,7 @@ That last finding is why EyeSee's understanding score cannot reach 7/10 until al
 | Minutes | One shared transcript: original + translation on both sides, with live "speaking / translating" indicators. | Large transcript panel in front. Past entries can be scrolled. |
 | Hard words | Chips show which terms were explained to the patient. Tap one to generate an illustration. | Glossary panel: plain-language explanations (optionally with a picture). |
 | Nuance | Notes such as "『はい』 may mean 'I'm listening', not 'I agree'", or ずきずき → "throbbing (zuki-zuki)". Warnings for risky phrasing ("100% safe"). | — |
-| Tools | Pain, Body, Feelings and 3D tools, opened from the phone. | 10 animated pain orbs (ずきずき, ちくちく, しめつけ…) and a 0–10 scale. A life-size body to point at. Rich feelings (rushed, needs time, wants family…). |
+| Symptoms | Sees the patient's symptom map: each spot on a 3D body with its sensation and strength. | Points at a life-size body, picks the sensation from 10 animated orbs (ずきずき, ちくちく, しめつけ…), then the strength. Can start it any time with 伝える. Rich feelings too (rushed, needs time, wants family…). |
 | 3D | Rotate the model or tap a part: the headset mirrors it live. | Heart (with stenosis), lungs, coronary stent (PCI) in 5 steps, life-size body. |
 | I see | Sees "I see" / "I don't understand" on each utterance. After an "I don't understand", AI suggests a simpler way to say it. | Physical わかった (I see) / わからない (I don't understand) buttons. |
 | EyeSee AI | Hold the AI button and ask, e.g. "Did I forget anything?" | Hold the big AI button and ask. The answer is visible to both, in both languages. |

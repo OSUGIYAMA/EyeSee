@@ -80,6 +80,20 @@ export class Viewer {
     this.camera.updateProjectionMatrix();
   }
 
+  /** Frame a region of the current model (points in its local space), e.g. the reported symptoms. */
+  focus(points, pad = 0.28) {
+    const obj = this.current?.object;
+    if (!obj || !points?.length) return;
+    const box = new THREE.Box3();
+    for (const p of points) box.expandByPoint(new THREE.Vector3(...p));
+    box.expandByScalar(pad);
+    const c = box.getCenter(new THREE.Vector3());
+    obj.position.set(-c.x, -c.y, -c.z);
+    const r = Math.max(...box.getSize(new THREE.Vector3()).toArray()) * 0.5;
+    this.camera.position.set(0, 0, (r / Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2))) * 1.15);
+    this.camera.updateProjectionMatrix();
+  }
+
   clear() {
     if (this.current) {
       this.pivot.remove(this.current.object);
@@ -124,6 +138,7 @@ export class Viewer {
     this.pitch += (this.targetPitch - this.pitch) * 0.18;
     this.pivot.rotation.set(this.pitch, this.yaw, 0, 'YXZ');
     this.current?.update?.(dt, this.clock.elapsedTime);
+    this.onTick?.(dt, this.clock.elapsedTime);
     this.renderer.render(this.scene, this.camera);
   }
 

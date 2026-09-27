@@ -44,8 +44,8 @@ const altIdx = s.entries.findIndex((e) => e.kind === 'speech' && /alternatives/i
 check(altIdx > 0 && Math.max(...s.understanding.history.filter((h) => Date.parse(h.ts) < Date.parse(s.entries[altIdx].ts)).map((h) => h.score)) < thr, `score stays below ${thr} until alternatives are discussed`);
 check(s.understanding.score >= thr, `final understanding ${s.understanding.score}/10 (judge: ${s.understanding.source})`);
 check(s.entries.some((e) => e.kind === 'ai' && e.ai.omissions?.some((o) => /alternative/i.test(o.doctor))), 'AI check flagged missing alternatives');
-check(s.entries.some((e) => e.kind === 'event' && e.event.type === 'pain'), 'pain selection recorded');
-check(s.entries.some((e) => e.kind === 'event' && e.event.type === 'body'), 'body location recorded');
+check(s.symptoms?.length === 2 && s.symptoms.every((x) => x.region && x.quality && x.intensity != null), 'symptoms recorded as where + how + how much');
+check(s.entries.some((e) => e.kind === 'event' && e.event.type === 'symptom' && e.event.quality === 'shimetsuke'), 'symptom appears in the minutes');
 
 send(doctor, { type: 'consentOpen' });
 await until(() => doctor.state.consent?.status === 'precheck', 60000);

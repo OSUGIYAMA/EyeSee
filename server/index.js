@@ -93,12 +93,14 @@ const HANDLERS = {
     st.step = Math.max(0, Math.min(8, +m.step || 0));
     room.changed(false);
   },
-  bodyPoint: (room, ws, m) => P.bodyPoint(room, m.region, m.point, ws.role),
+  bodyPoint: (room, ws, m) => P.symptomPoint(room, m.region, m.point, ws.role),
+  symptomQuality: (room, ws, m) => P.symptomQuality(room, m.id, m.quality),
+  symptomIntensity: (room, ws, m) => P.symptomIntensity(room, m.id, m.v),
+  symptomDone: (room) => P.symptomDone(room),
+  symptomRemove: (room, ws, m) => P.symptomRemove(room, m.id),
+  openTool: (room, ws, m) => P.openTool(room, m.tool),
   closeImage: (room) => room.state.stage?.tool === 'image' && P.setStage(room, null),
-  bodyClear: (room) => {
-    if (room.state.stage?.tool === 'body') room.state.stage.points = [];
-    room.changed(false);
-  },
+  bodyClear: (room) => [...(room.state.symptoms || [])].forEach((x) => P.symptomRemove(room, x.id)),
   // patient
   painType: (room, ws, m) => P.painType(room, m.id),
   painIntensity: (room, ws, m) => P.painIntensity(room, m.v),

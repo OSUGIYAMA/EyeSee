@@ -66,6 +66,10 @@ const UI = {
     feeling: 'Feeling',
     signed: 'Signed',
     confirmed: 'Confirmed',
+    tell: 'Show',
+    another: 'Another spot',
+    feelingsShort: 'Feelings',
+    whereTitle: 'Point to where it hurts',
   },
   ja: {
     tagline: '医師の言葉が、わかる。',
@@ -122,6 +126,10 @@ const UI = {
     feeling: '気持ち',
     signed: '署名しました',
     confirmed: '確認',
+    tell: '伝える',
+    another: 'もう一か所',
+    feelingsShort: '気持ち',
+    whereTitle: '痛いところを指してください',
   },
 };
 

@@ -478,11 +478,11 @@ export function create() {
       const wDown = sstep(0.25, 0.75, -ny[k]);          // inferior border: sharp, anterior
       const wLL = sstep(3.5, 9.0, xo[k]);                 // thin left lobe
       tZe[k] = lerp(lerp(-1.2, 1.1, wLL), lerp(3.5, 2.3, wLL), wDown);
-      tRf[k] = lerp(lerp(6.5, 3.4, wLL), lerp(2.8, 2.2, wLL), wDown);
-      tRb[k] = lerp(lerp(7.5, 3.8, wLL), lerp(5.2, 3.6, wLL), wDown);
-      const wTip = sstep(9.5, 12, xo[k]);                // the very tip of the left lobe thins to an edge
-      tSf[k] = lerp(0.35 * wTip, 0.8, wDown);
-      tSb[k] = lerp(0.05 + 0.4 * wTip, 1.0, wDown);
+      const wTip = sstep(8.5, 12, xo[k]);                // the tip of the left lobe thins to a wedge
+      tRf[k] = lerp(lerp(lerp(6.5, 3.4, wLL), 6.5, wTip), lerp(2.8, 2.2, wLL), wDown);
+      tRb[k] = lerp(lerp(lerp(7.5, 3.8, wLL), 6.5, wTip), lerp(5.2, 3.6, wLL), wDown);
+      tSf[k] = lerp(0.8 * wTip, 0.8, wDown);
+      tSb[k] = lerp(0.05 + 0.85 * wTip, 1.0, wDown);
     }
     for (const t of [tZe, tRf, tRb, tSf, tSb]) smooth(t, 60);
     for (const t of [tR, tCa, tZe, tRf, tRb, tSf, tSb]) t[NA] = t[0];

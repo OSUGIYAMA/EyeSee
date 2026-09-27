@@ -294,55 +294,85 @@ export function setStage(room, stage) {
   room.changed();
 }
 
-// ---------------------------------------------------------------- patient input tools
+// ---------------------------------------------------------------- symptoms: where, how, how much
 
-export function painType(room, id) {
-  const s = room.state;
-  const p = PAIN_TYPES.find((x) => x.id === id);
-  if (!p) return;
-  const stage = s.stage?.tool === 'pain' ? s.stage : (s.stage = { tool: 'pain' });
-  stage.type = id;
-  stage.phase = 'intensity';
-  const text = painText(s, p, stage.intensity);
-  if (stage.entryId && room.entry(stage.entryId)) room.updateEntry(stage.entryId, { event: { type: 'pain', id, intensity: stage.intensity ?? null }, text });
-  else stage.entryId = room.event('pain', { id, intensity: null }, text, 'patient').id;
-  room.changed();
-}
+// The patient holds the information about the illness. Each symptom is a place on the body, a
+// sensation and a strength: made physical in the headset, and shown to the doctor as a map.
 
-export function painIntensity(room, v) {
-  const s = room.state;
-  const stage = s.stage?.tool === 'pain' ? s.stage : null;
-  v = Math.max(0, Math.min(10, Math.round(+v)));
-  if (!stage) return;
-  stage.intensity = v;
-  stage.phase = 'done';
-  const p = PAIN_TYPES.find((x) => x.id === stage.type);
-  const text = painText(s, p, v);
-  if (stage.entryId && room.entry(stage.entryId)) room.updateEntry(stage.entryId, { event: { type: 'pain', id: p?.id ?? null, intensity: v }, text });
-  else stage.entryId = room.event('pain', { id: p?.id ?? null, intensity: v }, text, 'patient').id;
-  room.changed();
-}
-
-function painText(s, p, v) {
-  const lv = v == null ? '' : ` · ${v}/10`;
-  if (!p) return { doctor: `Pain${lv}`, patient: `痛み${lv}` };
+function symText(s, sym) {
+  const p = PAIN_TYPES.find((x) => x.id === sym.quality);
+  const lv = sym.intensity == null ? '' : ` · ${sym.intensity}/10`;
   return {
-    doctor: `Pain: ${p.en} (${p.ja})${lv}`,
-    patient: `痛み：${p.ja}${lv}`,
+    doctor: `${sym.region.label.en}${p ? ` — ${p.en} (${p.ja})` : ''}${lv}`,
+    patient: `${L(sym.region.label, s.patientLang)}${p ? ` — ${p.ja}` : ''}${lv}`,
   };
 }
+const symEvent = (sym) => ({ symptom: sym.id, region: sym.region, quality: sym.quality, intensity: sym.intensity });
 
-export function bodyPoint(room, region, point, role = 'patient') {
+function touchSymptom(room, sym) {
   const s = room.state;
-  if (!region?.id) return;
-  const stage = s.stage?.tool === 'body' ? s.stage : (s.stage = { tool: 'body' });
-  stage.points = [...(stage.points || []), { id: uid(), region, point, by: role }].slice(-8);
-  const regions = stage.points.map((x) => ({ id: x.region.id, label: x.region.label }));
-  const text = { doctor: `Where it hurts: ${regions.map((r) => r.label.en).join(', ')}`, patient: `痛い場所：${regions.map((r) => L(r.label, s.patientLang)).join('、')}` };
-  if (stage.entryId && room.entry(stage.entryId)) room.updateEntry(stage.entryId, { event: { type: 'body', regions }, text });
-  else stage.entryId = room.event('body', { regions }, text, role).id;
+  if (sym.entryId && room.entry(sym.entryId)) room.updateEntry(sym.entryId, { event: { type: 'symptom', ...symEvent(sym) }, text: symText(s, sym) });
+  else sym.entryId = room.event('symptom', symEvent(sym), symText(s, sym), sym.by).id;
   room.changed();
 }
+
+const findSym = (s, id) => (s.symptoms || []).find((x) => x.id === (id || s.stage?.active));
+
+/** The patient (or the doctor) points at the body: a new symptom starts there. */
+export function symptomPoint(room, region, point, role = 'patient') {
+  const s = room.state;
+  if (!region?.id) return;
+  s.symptoms ||= [];
+  const sym = { id: uid(), region: { id: region.id, label: region.label }, point, quality: null, intensity: null, by: role, ts: new Date().toISOString() };
+  s.symptoms = [...s.symptoms, sym].slice(-8);
+  s.stage = { ...(s.stage?.tool === 'body' ? s.stage : { tool: 'body' }), active: sym.id, highlight: null };
+  touchSymptom(room, sym);
+}
+
+export function symptomQuality(room, id, quality) {
+  const s = room.state;
+  const sym = findSym(s, id);
+  if (!sym || !PAIN_TYPES.some((p) => p.id === quality)) return;
+  sym.quality = quality;
+  touchSymptom(room, sym);
+}
+
+export function symptomIntensity(room, id, v) {
+  const s = room.state;
+  const sym = findSym(s, id);
+  if (!sym) return;
+  sym.intensity = Math.max(0, Math.min(10, Math.round(+v)));
+  touchSymptom(room, sym);
+}
+
+/** Finished describing this spot (the body stays open to add another). */
+export function symptomDone(room) {
+  const st = room.state.stage;
+  if (st?.tool === 'body') st.active = null;
+  room.changed();
+}
+
+export function symptomRemove(room, id) {
+  const s = room.state;
+  const sym = (s.symptoms || []).find((x) => x.id === id);
+  if (!sym) return;
+  s.symptoms = s.symptoms.filter((x) => x !== sym);
+  if (s.stage?.active === id) s.stage.active = null;
+  if (sym.entryId) room.updateEntry(sym.entryId, { removed: true });
+  room.changed();
+}
+
+/** Open a symptom tool from either side (the patient can start telling without being asked). */
+export function openTool(room, tool) {
+  if (!['body', 'feelings'].includes(tool)) return;
+  const st = room.state.stage;
+  setStage(room, st?.tool === tool ? null : { tool });
+}
+
+// Older clients / scripts: a pain type or strength applies to the spot being described.
+export const painType = (room, id) => symptomQuality(room, null, id);
+export const painIntensity = (room, v) => symptomIntensity(room, null, v);
+export const bodyPoint = symptomPoint;
 
 export function feeling(room, id) {
   const s = room.state;
@@ -606,13 +636,11 @@ export async function demoNext(room) {
     await speechText(room, step.speaker, step.text, llmProvider() ? 'demo' : 'demo-offline', canned);
   } else if (step.do === 'mode') setMode(room, step.mode);
   else if (step.do === 'stage') setStage(room, step.stage);
-  else if (step.do === 'pain') {
-    if (s.stage?.tool !== 'pain') setStage(room, { tool: 'pain' });
-    painType(room, step.type);
-    painIntensity(room, step.intensity);
-  } else if (step.do === 'body') {
-    if (s.stage?.tool !== 'body') setStage(room, { tool: 'body' });
-    bodyPoint(room, step.region, step.point);
+  else if (step.do === 'symptom') {
+    symptomPoint(room, step.region, step.point);
+    symptomQuality(room, null, step.quality);
+    symptomIntensity(room, null, step.intensity);
+    symptomDone(room);
   } else if (step.do === 'model') showModel(room, step);
   else if (step.do === 'confused') await confused(room, 'patient');
   else if (step.do === 'isee') iSee(room, 'patient');

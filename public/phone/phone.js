@@ -7,6 +7,7 @@ import { MODELS, PAIN_TYPES, FEELINGS, CONSENT_ELEMENTS, LANGUAGES } from '/shar
 import { readFor } from '/shared/entries.js';
 import { icon } from '/shared/icons.js';
 import { Viewer } from '/phone/viewer3d.js';
+import { SymptomLayer, symptomLine } from '/shared/symptoms.js';
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -56,6 +57,7 @@ function render() {
   if (!S) return;
   renderNotice();
   renderMeter();
+  renderSymptoms();
   renderFeed();
   renderStage();
   syncSheet();
@@ -101,6 +103,46 @@ $('#consentBtn').onclick = () => {
   openConsent();
 };
 
+// ---------------------------------------------------------------- the patient's symptom map
+
+const level = (v) => (v == null ? '' : v >= 7 ? 'l3' : v >= 4 ? 'l2' : 'l1');
+function renderSymptoms() {
+  const list = S.symptoms || [];
+  const box = $('#symptoms');
+  box.hidden = !list.length;
+  box.innerHTML = list.map((x) => `<button class="sym" data-sym="${x.id}"><i class="${level(x.intensity)}"></i>${esc(symptomLine(x))}</button>`).join('');
+}
+$('#symptoms').onclick = () => openSymptoms();
+
+let symViewer = null;
+function openSymptoms() {
+  const draw = () => {
+    const list = S.symptoms || [];
+    if (!$('#symCanvas')) {
+      openSheet(
+        'symptoms',
+        `<h2>Symptoms</h2><p class="lead">As the patient showed them in the headset.</p>
+         <canvas class="viewer" id="symCanvas"></canvas>
+         <div class="group sym-list" id="symList" style="margin-top:12px"></div>
+         <button class="btn plain" data-close>Done</button>`,
+        draw,
+      );
+      symViewer?.stop();
+      symViewer = new Viewer($('#symCanvas'));
+      symViewer.show('model', 'body').then(async (obj) => {
+        if (!obj) return;
+        const { createPainViz } = await import('/shared/painviz.js');
+        obj.layer = new SymptomLayer(obj, createPainViz);
+        obj.layer.sync(S.symptoms || []);
+        symViewer.focus((S.symptoms || []).map((x) => x.point).filter(Boolean));
+        symViewer.onTick = (dt, t) => obj.layer.update(dt, t);
+      });
+    } else symViewer?.current?.layer?.sync(list);
+    $('#symList').innerHTML = list.map((x) => `<div class="cell"><i class="${level(x.intensity)}"></i><span class="grow">${esc(symptomLine(x))}<small>${esc(x.ts ? new Date(x.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '')}</small></span></div>`).join('') || '<div class="cell">None yet</div>';
+  };
+  draw();
+}
+
 // ---------------------------------------------------------------- conversation
 
 const nodes = new Map();
@@ -116,7 +158,7 @@ function resetFeed() {
 }
 
 // "I see" / "I don't understand" show on the utterance they refer to, not as separate lines.
-const shown = (e) => !(e.kind === 'event' && (e.event.type === 'isee' || (e.event.type === 'confused' && !e.help)));
+const shown = (e) => !e.removed && !(e.kind === 'event' && (e.event.type === 'isee' || (e.event.type === 'confused' && !e.help)));
 
 function renderFeed() {
   const visible = S.entries.filter(shown);
@@ -237,15 +279,6 @@ function renderStage() {
   if (key !== stageKey) (body.innerHTML = ''), (stageKey = key);
   const title = $('#stageTitle');
 
-  if (st.tool === 'pain') {
-    const p = PAIN_TYPES.find((x) => x.id === st.type);
-    title.innerHTML = p ? 'Pain' : 'Pain<small>patient is choosing</small>';
-    const extra = ensureViewer(body);
-    if (p) viewer.show('pain', p.anim);
-    else viewer.hide();
-    extra.innerHTML = p ? `<div class="stage-note"><span class="big-num">${st.intensity ?? '–'}</span><b>${esc(p.en)}</b> · ${esc(p.ja)}<br>${esc(p.enHint)}</div>` : '';
-    return;
-  }
   if (st.tool === 'feelings') {
     title.innerHTML = 'Feelings<small>patient is choosing</small>';
     viewer?.hide();
@@ -261,7 +294,7 @@ function renderStage() {
   }
   const id = st.tool === 'body' ? 'body' : st.modelId;
   const m = MODELS.find((x) => x.id === id);
-  title.innerHTML = `${esc(m?.en || id)}<small>${st.tool === 'body' ? 'patient points' : 'shared'}</small>`;
+  title.innerHTML = st.tool === 'body' ? 'Symptoms<small>patient is showing</small>' : `${esc(m?.en || id)}<small>shared</small>`;
   const extra = ensureViewer(body);
   viewer.show('model', id).then((obj) => {
     if (!obj || S.stage !== st) return;
@@ -270,13 +303,16 @@ function renderStage() {
       obj.setStep(st.step, { instant: obj._step === undefined }); // late joiner: jump, don't replay
       obj._step = st.step;
     }
-    if (st.tool === 'body' && obj.addMarker) {
-      const sig = (st.points || []).map((p) => p.id).join(',');
-      if (obj._pts !== sig) {
-        obj.clearMarkers();
-        for (const p of st.points || []) if (p.point) obj.addMarker(new THREE.Vector3(...p.point));
-        obj._pts = sig;
+    if (st.tool === 'body') {
+      if (!obj.layer) {
+        obj.layer = new SymptomLayer(obj, null);
+        import('/shared/painviz.js').then(({ createPainViz }) => ((obj.layer.create = createPainViz), obj.layer.sync(S.symptoms || [], S.stage?.active)));
+        viewer.onTick = (dt, t) => obj.layer.update(dt, t);
       }
+      obj.layer.sync(S.symptoms || [], st.active);
+      const pts = (S.symptoms || []).map((x) => x.point).filter(Boolean);
+      const sig = pts.flat().join(',');
+      if (pts.length && obj._focus !== sig) (obj._focus = sig), viewer.focus(pts);
     }
     if (st.viewBy !== 'doctor') viewer.setView(st.yaw || 0, st.pitch || 0);
     if (st.tool === 'model' && !obj.meta?.steps?.length) {
@@ -289,7 +325,8 @@ function renderStage() {
     }
   });
   if (st.tool === 'body') {
-    extra.innerHTML = `<div class="pills">${(st.points || []).map((p) => `<span class="pill">${esc(p.region.label.en)}</span>`).join('')}${st.points?.length ? '<button class="pill" data-act="clear">Clear</button>' : ''}</div>`;
+    const list = S.symptoms || [];
+    extra.innerHTML = `<div class="pills">${list.map((x) => `<span class="pill">${esc(symptomLine(x))}</span>`).join('') || '<span class="stage-note">Waiting for the patient to point.</span>'}${list.length ? '<button class="pill" data-act="clear">Clear</button>' : ''}</div>`;
   } else {
     import(`/shared/models/${id}.js`).then(({ meta }) => {
       if (!meta.steps?.length || S.stage !== st) return;
@@ -421,6 +458,7 @@ function openSheet(kind, html, redraw) {
   $('#sheet').hidden = false;
 }
 function closeSheet() {
+  if (sheetKind === 'symptoms') symViewer?.stop(), (symViewer = null);
   sheetKind = null;
   sheetRedraw = null;
   $('#sheet').hidden = true;
@@ -437,8 +475,7 @@ $('#plus').onclick = () => {
     'tools',
     `<h2>Show the Patient</h2>
      <div class="group">
-       ${cell('Pain', { sub: 'Type and strength', act: 'pain', chevron: true })}
-       ${cell('Body', { sub: 'Where it hurts', act: 'body', chevron: true })}
+       ${cell('Symptoms', { sub: 'Where, how and how much it hurts', act: 'body', chevron: true })}
        ${cell('Feelings', { sub: 'How they feel', act: 'feelings', chevron: true })}
      </div>
      <h3>3D Models</h3>
@@ -569,7 +606,7 @@ function syncSheet() {
   if (c && consentSeen !== c.status && ['preparing', 'precheck', 'signing', 'signed'].includes(c.status)) openConsent();
   consentSeen = c?.status || null;
   if (sheetKind === 'consent') drawConsent();
-  else if (sheetKind === 'term') sheetRedraw?.();
+  else if (sheetKind === 'term' || sheetKind === 'symptoms') sheetRedraw?.();
 }
 
 function openConsent() {

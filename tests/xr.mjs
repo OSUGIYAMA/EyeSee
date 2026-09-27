@@ -126,14 +126,15 @@ async function rayClick(panelName, regionId, from = [0.3, 1.2, 0.2]) {
     const q = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(o, target, new THREE.Vector3(0, 1, 0)));
     c.quaternion.set(q.x, q.y, q.z, q.w);
     await wait(250);
+    const probe = window.__eyesee.ix.cast(o, target.clone().sub(o).normalize());
     c.updateButtonValue('trigger', 1);
     await wait(150);
     c.updateButtonValue('trigger', 0);
     await wait(400);
-    return 'ok';
+    return probe ? `${probe.target.object.name || probe.target.kind}:${probe.hit.region?.id ?? ''}` : 'nothing hit';
   }, [panelName, regionId, from]);
 }
-await rayClick('sheet', 'f:anxious');
+console.log('  ray hit →', await rayClick('sheet', 'f:anxious'));
 await quest.waitForTimeout(500);
 check((await serverState()).entries.some((e) => e.kind === 'event' && e.event.type === 'feeling' && e.event.id === 'anxious'), 'controller ray + trigger picks a feeling on the sheet');
 
@@ -180,7 +181,7 @@ const bodyResult = await quest.evaluate(async () => {
   await wait(200);
   c.updateButtonValue('trigger', 0);
   await wait(600);
-  return window.__eyesee.state.stage?.points?.map((p) => p.region.id).join(',') || 'no point';
+  return (window.__eyesee.state.symptoms || []).map((p) => p.region.id).join(',') || 'no point';
 });
 check(/chest/.test(bodyResult), `pointing at the body's chest records a pain location (${bodyResult})`);
 
