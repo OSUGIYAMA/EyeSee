@@ -29,7 +29,8 @@ export function heuristicAssessment(state) {
     if (e.speaker === 'doctor') {
       const text = e.orig.lang === 'en' ? e.orig.text : e.tr?.text || e.orig.text;
       for (const [id, rx] of Object.entries(RX)) {
-        if (rx.test(text)) elements[id] = words(text) >= 8 ? 'explained' : elements[id] === 'explained' ? 'explained' : 'mentioned';
+        // An invitation to ask questions is complete in itself; other elements need an actual explanation.
+        if (rx.test(text)) elements[id] = id === 'questions' || words(text) >= 8 ? 'explained' : elements[id] === 'explained' ? 'explained' : 'mentioned';
       }
       if (TEACH_BACK.test(text)) teachBackAsked = true;
       if (lastWasPatientQuestion) answered++;
