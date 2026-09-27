@@ -56,8 +56,6 @@ const TAU = Math.PI * 2;
 const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
 const lerp = (a, b, t) => a + (b - a) * t;
 const sstep = (a, b, x) => { const t = clamp01((x - a) / (b - a)); return t * t * (3 - 2 * t); };
-const smin = (a, b, k) => { const h = clamp01(0.5 + 0.5 * (b - a) / k); return lerp(b, a, h) - k * h * (1 - h); };
-const smax = (a, b, k) => -smin(-a, -b, k);
 
 function hash3(i, j, k, s) {
   let h = Math.imul(i, 374761393) ^ Math.imul(j, 668265263) ^ Math.imul(k, 1440662683) ^ Math.imul(s + 1, 2246822519);
@@ -75,8 +73,6 @@ function noise3(x, y, z, s = 0) {
   const d = lerp(hash3(xi, yi + 1, zi + 1, s), hash3(xi + 1, yi + 1, zi + 1, s), u);
   return lerp(lerp(a, b, v), lerp(c, d, v), w);
 }
-const fbm = (x, y, z, s = 0) =>
-  noise3(x, y, z, s) * 0.6 + noise3(x * 2.03, y * 2.03, z * 2.03, s + 7) * 0.28 + noise3(x * 4.1, y * 4.1, z * 4.1, s + 13) * 0.12;
 
 
 // Tube with variable radius along a curve; optional end caps showing a cut lumen.
@@ -211,12 +207,12 @@ function makeHighlighter() {
         e.dim += (td - e.dim) * k;
         if (Math.abs(tg - e.glow) < 0.002 && Math.abs(td - e.dim) < 0.002) { e.glow = tg; e.dim = td; if (!tg) e.settled = true; }
         const gl = e.glow * (0.22 + 0.38 * pulse);
-        const dm = 1 - 0.5 * e.dim;
+        const dm = 1 - 0.38 * e.dim;
         for (let m = 0; m < e.mats.length; m++) {
           const mat = e.mats[m], h = mat.userData.hl;
           mat.color.copy(h.color).multiplyScalar(dm);
           mat.emissive.copy(h.emissive).lerp(h.glow, gl);
-          if (mat.transparent) mat.opacity = h.opacity * (1 - 0.45 * e.dim);
+          if (mat.transparent) mat.opacity = h.opacity * (1 - 0.3 * e.dim);
         }
       }
     },
@@ -431,7 +427,7 @@ export function create() {
     const inf1 = s(1.1, 1.6) * (1 - s(2.0, 2.22));
     const inf2 = s(2.6, 2.95) * (1 - s(3.02, 3.28));
     S.inflate = Math.max(inf1, inf2);
-    S.rB = lerp(0.15, inf2 > inf1 ? 0.9 : 0.74, S.inflate);
+    S.rB = lerp(0.15, inf2 > inf1 ? 0.935 : 0.74, S.inflate);
     S.stentX = lerp(-XL - 7.0, 0, s(2.22, 2.6));
     S.stentR = lerp(0.21, 0.97, s(2.6, 2.95));
     S.stentA = lerp(0.2, 0.175, s(2.6, 2.95));
@@ -788,7 +784,7 @@ export function create() {
   const update = (dt, t) => {
     if (T !== target) {
       const d = target - T;
-      const speed = (d > 0 ? 0.6 : 1.6) * Math.max(1, Math.abs(d) * 0.8);
+      const speed = (d > 0 ? 0.42 : 1.6) * Math.max(1, Math.abs(d) * 0.8); // ≈2.4 s per step forward
       T = Math.abs(d) <= speed * dt ? target : T + Math.sign(d) * speed * dt;
       evalState(T);
       applyState();
@@ -802,9 +798,10 @@ export function create() {
     parts: PARTS.map((p) => ({ ...p })),
     update,
     highlight(partId) { hl.set(partId); },
-    setStep(n) {
-      const k = Math.max(0, Math.min(meta.steps.length - 1, Math.round(Number(n) || 0)));
-      target = k;
+    // setStep(n) animates to step n; setStep(n, { instant: true }) jumps (e.g. a late-joining viewer).
+    setStep(n, opts) {
+      target = Math.max(0, Math.min(meta.steps.length - 1, Math.round(Number(n) || 0)));
+      if (opts && opts.instant) { T = target; evalState(T); applyState(); }
     },
     getStep() { return Math.round(target); },
     dispose() {

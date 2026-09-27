@@ -270,12 +270,12 @@ function makeHighlighter() {
         e.dim += (td - e.dim) * k;
         if (Math.abs(tg - e.glow) < 0.002 && Math.abs(td - e.dim) < 0.002) { e.glow = tg; e.dim = td; if (!tg) e.settled = true; }
         const gl = e.glow * (0.22 + 0.38 * pulse);
-        const dm = 1 - 0.5 * e.dim;
+        const dm = 1 - 0.38 * e.dim;
         for (let m = 0; m < e.mats.length; m++) {
           const mat = e.mats[m], h = mat.userData.hl;
           mat.color.copy(h.color).multiplyScalar(dm);
           mat.emissive.copy(h.emissive).lerp(h.glow, gl);
-          if (mat.transparent) mat.opacity = h.opacity * (1 - 0.45 * e.dim);
+          if (mat.transparent) mat.opacity = h.opacity * (1 - 0.3 * e.dim);
         }
       }
     },
@@ -630,6 +630,7 @@ export function create() {
   branchOff(rca.curve, 0.3, 25 * deg, -5.8, Rc * 0.55, 'rca');
 
   // ── the stenosis: lumpy yellow plaque collar around the narrowed LAD ──
+  const stenosisAt = new THREE.Vector3();
   {
     const c = lad.curve;
     const len = c.getLength();
@@ -671,7 +672,37 @@ export function create() {
     }
     g.setAttribute('color', new THREE.BufferAttribute(col, 3));
     addMesh(g, 'plaque', ventG);
+    stenosisAt.copy(c.getPointAt(STEN_U));
   }
+  // soft glow sprite so the (small) narrowing is easy to spot when it is highlighted
+  const halo = (() => {
+    if (typeof document === 'undefined') return null;
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = 128;
+    const g2 = cv.getContext('2d');
+    const rg = g2.createRadialGradient(64, 64, 4, 64, 64, 64);
+    rg.addColorStop(0, 'rgba(255,240,170,1)'); rg.addColorStop(0.35, 'rgba(255,214,110,0.55)'); rg.addColorStop(1, 'rgba(255,190,80,0)');
+    g2.fillStyle = rg; g2.fillRect(0, 0, 128, 128);
+    const tex = track(new THREE.CanvasTexture(cv));
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const mat = track(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 }));
+    const sp = new THREE.Sprite(mat);
+    sp.position.copy(stenosisAt);
+    sp.scale.setScalar(3.2);
+    sp.renderOrder = 20;
+    sp.visible = false;
+    sp.raycast = () => {}; // never pickable
+    // float the glow slightly toward the viewer: fully visible from the front, hidden by the heart from behind
+    const inv = new THREE.Matrix4(), toCam = new THREE.Vector3();
+    sp.onBeforeRender = (renderer, scene, cam) => {
+      inv.copy(ventG.matrixWorld).invert();
+      toCam.setFromMatrixPosition(cam.matrixWorld).applyMatrix4(inv).sub(stenosisAt).normalize();
+      sp.position.copy(stenosisAt).addScaledVector(toCam, 1.3);
+      sp.updateMatrixWorld();
+    };
+    ventG.add(sp);
+    return sp;
+  })();
 
   // ── normalise: ~1 unit tall, centred on the origin ──
   const box = new THREE.Box3().setFromObject(body);
@@ -701,13 +732,19 @@ export function create() {
     setAbout(atriaG, atriaPivot, 1 - 0.05 * atr + 0.015 * ven, 0);
     setAbout(vesselG, ventPivot, 1 + 0.01 * ven, 0);
     hl.update(dt, t);
+    if (halo) {
+      const target = hlId === 'stenosis' ? 0.55 + 0.35 * Math.sin(t * 5.2) : 0;
+      halo.material.opacity += (target - halo.material.opacity) * (1 - Math.exp(-dt * 8));
+      halo.visible = halo.material.opacity > 0.01;
+    }
   };
+  let hlId = null;
 
   return {
     object: root,
     parts: PARTS.map((p) => ({ ...p })),
     update,
-    highlight(partId) { hl.set(partId); },
+    highlight(partId) { hlId = partId || null; hl.set(partId); },
     setStep() {},
     dispose() {
       for (const d of disposables) d.dispose();

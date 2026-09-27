@@ -85,14 +85,6 @@ function sdCapsule(x, y, z, a, b, r) {
   return Math.sqrt(qx * qx + qy * qy + qz * qz) - r;
 }
 
-// Orthonormal frame whose y axis is `up`, z axis as close to `hint` as possible.
-function makeFrame(up, hint) {
-  const y = up.clone().normalize();
-  const z = hint.clone().addScaledVector(y, -hint.dot(y)).normalize();
-  const x = new THREE.Vector3().crossVectors(y, z);
-  return { x, y, z };
-}
-
 // Star-shaped implicit surface → mesh: every vertex of an icosphere is pushed along its
 // ray from `c` to the first zero-crossing of F (negative inside).
 function implicitGeometry(F, c, detail, rMax, stretch) {
@@ -296,12 +288,12 @@ function makeHighlighter() {
         e.dim += (td - e.dim) * k;
         if (Math.abs(tg - e.glow) < 0.002 && Math.abs(td - e.dim) < 0.002) { e.glow = tg; e.dim = td; if (!tg) e.settled = true; }
         const gl = e.glow * (0.22 + 0.38 * pulse);
-        const dm = 1 - 0.5 * e.dim;
+        const dm = 1 - 0.38 * e.dim;
         for (let m = 0; m < e.mats.length; m++) {
           const mat = e.mats[m], h = mat.userData.hl;
           mat.color.copy(h.color).multiplyScalar(dm);
           mat.emissive.copy(h.emissive).lerp(h.glow, gl);
-          if (mat.transparent) mat.opacity = h.opacity * (1 - 0.45 * e.dim);
+          if (mat.transparent) mat.opacity = h.opacity * (1 - 0.3 * e.dim);
         }
       }
     },
@@ -438,15 +430,15 @@ export function create() {
     m.onBeforeCompile = (sh) => {
       sh.fragmentShader = sh.fragmentShader.replace('#include <opaque_fragment>', `
         float eyeFres = 1.0 - abs(dot(normalize(normal), normalize(vViewPosition)));
-        diffuseColor.a = clamp(diffuseColor.a * mix(0.6, 1.3, pow(eyeFres, 1.2)), 0.0, 1.0);
+        diffuseColor.a = clamp(diffuseColor.a * mix(0.68, 1.3, pow(eyeFres, 1.2)), 0.0, 1.0);
         #include <opaque_fragment>`);
     };
     m.customProgramCacheKey = () => 'eyesee-lung-fresnel';
     return m;
   };
   const M = {
-    'right-upper': lungMat('#f2a39c'), 'right-middle': lungMat('#ee9a98'), 'right-lower': lungMat('#f0a59b'),
-    'left-upper': lungMat('#f2a39c'), 'left-lower': lungMat('#f0a59b'),
+    'right-upper': lungMat('#ef9d96'), 'right-middle': lungMat('#ea9492'), 'right-lower': lungMat('#ed9f95'),
+    'left-upper': lungMat('#ef9d96'), 'left-lower': lungMat('#ed9f95'),
     trachea: track(new THREE.MeshPhysicalMaterial({ color: '#e9d9cf', roughness: 0.45, clearcoat: 0.5, clearcoatRoughness: 0.3, vertexColors: true, envMap: env, envMapIntensity: 0.5 })),
     carina: track(new THREE.MeshPhysicalMaterial({ color: '#e6d2c8', roughness: 0.45, clearcoat: 0.5, clearcoatRoughness: 0.3, envMap: env, envMapIntensity: 0.5 })),
     bronchi: track(new THREE.MeshPhysicalMaterial({ color: '#f6ece2', emissive: '#3a2a26', roughness: 0.42, clearcoat: 0.5, clearcoatRoughness: 0.3, vertexColors: true, envMap: env, envMapIntensity: 0.5 })),
@@ -472,12 +464,11 @@ export function create() {
   };
 
   // ── lobes ──
-  const lobeMeshes = [];
   for (const id in LOBES) {
     const F = LOBES[id];
     const c = centroid(F);
     const geo = relaxToSurface(implicitGeometry(F, c, 19, 16), F, 4);
-    const p = geo.attributes.position, n = geo.attributes.normal;
+    const p = geo.attributes.position;
     const col = new Float32Array(p.count * 3);
     for (let i = 0; i < p.count; i++) {
       const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
@@ -486,12 +477,9 @@ export function create() {
       const dep = 1 - 0.1 * sstep(-6, -18, y) * sstep(2, -6, z);
       const s = m * dep;
       col[i * 3] = s; col[i * 3 + 1] = s * 0.98; col[i * 3 + 2] = s * 0.98;
-      void n;
     }
     geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-    const mesh = addMesh(geo, id, breathG, true);
-    mesh.renderOrder = 2;
-    lobeMeshes.push(mesh);
+    addMesh(geo, id, breathG, true).renderOrder = 2;
   }
 
   // ── trachea with C-shaped cartilage rings ──
@@ -509,16 +497,12 @@ export function create() {
     tg.deleteAttribute('uv');
     trParts.push(tg);
   }
-  const trGeo = mergeGeometries(trParts.map((q) => {
-    const h = q.index ? q : q;
-    if (!h.attributes.color) {
-      const c = new Float32Array(h.attributes.position.count * 3).fill(1.04);
-      h.setAttribute('color', new THREE.BufferAttribute(c, 3));
-    }
-    if (h.attributes.uv) h.deleteAttribute('uv');
-    return h;
-  }));
-  addMesh(trGeo, 'trachea', body);
+  for (const q of trParts) { // cartilage rings slightly paler than the membranous wall
+    if (!q.attributes.color) q.setAttribute('color', new THREE.BufferAttribute(new Float32Array(q.attributes.position.count * 3).fill(1.04), 3));
+    if (q.attributes.uv) q.deleteAttribute('uv');
+  }
+  addMesh(mergeGeometries(trParts), 'trachea', body);
+  for (const q of trParts) q.dispose();
 
   // carina: smooth saddle where the trachea divides
   {
@@ -636,7 +620,7 @@ export function create() {
   };
   ringOn(carinaP.clone().lerp(rMainEnd, 0.3), rMainEnd, 0.76, 3);
   ringOn(carinaP.clone().lerp(lMainEnd, 0.25), lMainEnd, 0.65, 5);
-  const brGeo = mergeGeometries(branchGeos.map((q) => (q.index ? q : q.toNonIndexed())));
+  const brGeo = mergeGeometries(branchGeos);
   for (const q of branchGeos) q.dispose();
   addMesh(brGeo, 'bronchi', breathG);
 
@@ -646,19 +630,18 @@ export function create() {
     const RX = DRX * 0.93, RZ = DRZ * 0.93, zc = DZC;
     const pos = [], col = [], idx = [];
     const muscle = new THREE.Color('#b9584e'), tendon = new THREE.Color('#d9c3b6');
-    const surfY = (x, z) => D(x, z);
     for (let layer = 0; layer < 2; layer++) {
       for (let i = 0; i <= NR; i++) {
         const rho = Math.pow(i / NR, 0.9);
         for (let j = 0; j < NA; j++) {
           const a = (j / NA) * TAU;
           const x = RX * rho * Math.cos(a), z = zc + RZ * rho * Math.sin(a);
-          const y = surfY(x, z) - (layer ? TH : 0);
+          const y = D(x, z) - (layer ? TH : 0);
           pos.push(x, y, z);
           // central tendon: trefoil-shaped pale area
           const tx = x - 0.6, tz = z - 0.8;
           const ang = Math.atan2(tz, tx);
-          const tr = Math.hypot(tx / 1.25, tz) / (4.2 + 1.6 * Math.cos(3 * (ang + 0.5)));
+          const tr = Math.sqrt((tx / 1.25) * (tx / 1.25) + tz * tz) / (4.2 + 1.6 * Math.cos(3 * (ang + 0.5)));
           const w = 1 - sstep(0.55, 1.1, tr);
           const c = muscle.clone().lerp(tendon, w * 0.7);
           const m = 1 + 0.06 * noise3(x * 0.8, y * 0.8, z * 0.8, 71);
