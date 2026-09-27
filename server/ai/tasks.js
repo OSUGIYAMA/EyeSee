@@ -150,7 +150,7 @@ You can:
 Keep answers short and concrete.`,
     prompt: `Conversation so far:\n${formatTranscript(state, { last: 40 })}\n\nCurrent phase: ${state.mode}. Understanding score: ${state.understanding.score}/10.\n\nThe ${from.toUpperCase()} asks EyeSee AI:\n"""${question}"""`,
     schema: MEDIATOR_SCHEMA,
-    effort: 'medium',
+    effort: 'low', // both people are waiting in the room: favour a fast answer
     maxTokens: 4000,
     search: true,
   });

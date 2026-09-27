@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>EyeSee pain qualities preview</title>
+<style>
+  html,body{margin:0;height:100%;background:#0e1420;color:#dfe7f5;font:14px system-ui,sans-serif;overflow:hidden}
+  body.light{background:#cfd6de;color:#1b2533}
+  #hud{position:fixed;left:12px;top:10px;right:12px;display:flex;gap:12px;flex-wrap:wrap;align-items:baseline;z-index:2}
+  #hud b{font-size:16px} #hud span{opacity:.7}
+  canvas{display:block}
+  .lbl{position:fixed;transform:translateX(-50%);text-align:center;pointer-events:none;width:180px}
+  .lbl .ja{font-size:18px;font-weight:700}
+  .lbl .en{font-size:12px;opacity:.85}
+  .lbl .hint{font-size:11px;opacity:.6;margin-top:2px}
+  .lbl .tri{font-size:10px;opacity:.45}
+</style>
+<script type="importmap">{"imports":{"three":"/vendor/three/build/three.module.js","three/addons/":"/vendor/three/examples/jsm/"}}</script>
+</head>
+<body>
+<div id="hud"><b>Pain qualities / 痛みの性質</b><span>hover = setActive(true) · query: bg=light, t=&lt;s&gt;, active=&lt;anim|all&gt;</span><span id="stats"></span></div>
+<script type="module">
+import * as THREE from 'three';
+import { PAIN_TYPES } from '/shared/catalog.js';
+import { createPainViz, PAIN_ANIMS } from '/shared/painviz.js';
+
+const q = new URLSearchParams(location.search);
+if (q.get('bg') === 'light') document.body.classList.add('light');
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(devicePixelRatio);
+renderer.setSize(innerWidth, innerHeight);
+document.body.append(renderer.domElement);
+const scene = new THREE.Scene();
+scene.add(new THREE.HemisphereLight(0xffffff, 0x445566, 1.2));
+const camera = new THREE.PerspectiveCamera(30, innerWidth / innerHeight, 0.1, 100);
+
+const COLS = 5, DX = 2.7, DY = 3.3;
+const items = PAIN_TYPES.map((p, i) => {
+  const viz = createPainViz(p.anim);
+  const col = i % COLS, row = Math.floor(i / COLS);
+  viz.object.position.set((col - (COLS - 1) / 2) * DX, (0.5 - row) * DY + 0.25, 0);
+  scene.add(viz.object);
+  const el = document.createElement('div');
+  el.className = 'lbl';
+  let tris = 0;
+  viz.object.traverse((o) => {
+    if (!o.isMesh) return;
+    const g = o.geometry, n = (g.index ? g.index.count : g.attributes.position.count) / 3;
+    tris += n * (o.isInstancedMesh ? o.count : g.isInstancedBufferGeometry ? g.instanceCount : 1);
+  });
+  el.innerHTML = `<div class="ja">${p.ja}</div><div class="en">${p.en}</div><div class="hint">${p.jaHint}</div><div class="tri">${p.anim} · ${Math.round(tris)} tris</div>`;
+  document.body.append(el);
+  return { p, viz, el, tris };
+});
+document.getElementById('stats').textContent = `${items.length} orbs · max ${Math.max(...items.map((i) => i.tris))} tris / orb · anims: ${PAIN_ANIMS.join(', ')}`;
+
+function layout() {
+  renderer.setSize(innerWidth, innerHeight);
+  camera.aspect = innerWidth / innerHeight;
+  const w = COLS * DX, h = 2 * DY + 0.6;
+  const fitH = h / 2 / Math.tan((camera.fov * Math.PI) / 360);
+  const fitW = w / 2 / Math.tan((camera.fov * Math.PI) / 360) / camera.aspect;
+  camera.position.set(0, 0, Math.max(fitH, fitW) * 1.02);
+  camera.lookAt(0, 0, 0);
+  camera.updateProjectionMatrix();
+  const v = new THREE.Vector3();
+  for (const it of items) {
+    v.copy(it.viz.object.position).add({ x: 0, y: -1.2, z: 0 }).project(camera);
+    it.el.style.left = `${(v.x * 0.5 + 0.5) * innerWidth}px`;
+    it.el.style.top = `${(-v.y * 0.5 + 0.5) * innerHeight}px`;
+  }
+}
+layout();
+addEventListener('resize', layout);
+
+// hover → setActive
+const ray = new THREE.Raycaster(), mouse = new THREE.Vector2(9, 9), sphere = new THREE.Sphere();
+const forced = q.get('active');
+addEventListener('pointermove', (e) => { mouse.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1); });
+function hover() {
+  ray.setFromCamera(mouse, camera);
+  for (const it of items) {
+    sphere.set(it.viz.object.position, 1.05);
+    const on = forced === 'all' || forced === it.p.anim || ray.ray.intersectsSphere(sphere);
+    it.viz.setActive(on);
+  }
+}
+
+if (q.get('t')) { const T = +q.get('t'); hover(); for (let s = 0; s < T; s += 1 / 30) for (const it of items) it.viz.update(1 / 30, s); }
+const clock = new THREE.Clock();
+const t0 = +(q.get('t') || 0);
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(clock.getDelta(), 0.05);
+  hover();
+  for (const it of items) it.viz.update(dt, t0 + clock.elapsedTime);
+  renderer.render(scene, camera);
+});
+window.__viz = items.map((i) => i.viz);
+</script>
+</body>
+</html>

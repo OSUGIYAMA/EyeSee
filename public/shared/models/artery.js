@@ -415,7 +415,7 @@ export function create() {
     blood: phys({ color: '#b3141e', roughness: 0.4, clearcoat: 0.45, clearcoatRoughness: 0.3, sheen: 0.5, sheenColor: new THREE.Color('#ff7a70') }),
     wire: addClipX(phys({ color: '#ffffff', vertexColors: true, metalness: 0.85, roughness: 0.28, envMapIntensity: 1.1 })),
     catheter: addClipX(phys({ color: '#ffffff', vertexColors: true, roughness: 0.3, clearcoat: 0.8, clearcoatRoughness: 0.15 })),
-    balloon: addClipX(phys({ color: '#a9d6f2', roughness: 0.12, clearcoat: 1, clearcoatRoughness: 0.08, transparent: true, opacity: 0.5, depthWrite: false, envMapIntensity: 0.9 })),
+    balloon: addClipX(phys({ color: '#86c6f0', roughness: 0.12, clearcoat: 1, clearcoatRoughness: 0.08, transparent: true, opacity: 0.58, depthWrite: false, envMapIntensity: 0.9 })),
     stent: addClipX(phys({ color: '#dfe5ec', metalness: 0.85, roughness: 0.24, envMapIntensity: 1.3 })),
   };
   for (const k in M) hl.register(k, M[k]);
@@ -429,13 +429,14 @@ export function create() {
   const C = (hex) => new THREE.Color(hex);
 
   // ── vessel wall (cut-away window on the front half) ──
+  const vesselBox = new THREE.Box3();
   {
     const NU = 100, NV = 72; // x step 0.1, θ step 5°
     const iA = Math.round(((-XW + XL) / (2 * XL)) * NU), iB = Math.round(((XW + XL) / (2 * XL)) * NU), jH = NV / 2;
     const keep = (i, j) => !(i >= iA && i < iB && j < jH); // θ ∈ [0, π) is the front half
     const outerC = C('#c86a60'), innerC = C('#e9a79e');
     const tint = (base, amt, seed) => (P, u, v, out) => {
-      const n = noise3(P.x * 1.4, P.y * 1.4, P.z * 1.4, seed) * amt + noise3(P.x * 5, P.y * 5, P.z * 5, seed + 1) * amt * 0.4;
+      const n = noise3(P.x * 1.4, P.y * 1.4, P.z * 1.4, seed) * amt + noise3(P.x * 0.6, P.y * 6, P.z * 6, seed + 1) * amt * 0.7;
       out.copy(base).multiplyScalar(1 + n);
     };
     const outer = paramGrid(NU, NV, (u, v, o) => { const x = lerp(-XL, XL, u), th = v * TAU; setP(o, x, th, wallOut(x, th)); },
@@ -459,19 +460,21 @@ export function create() {
     }
     const g = mergeGeometries(parts);
     for (const p of parts) p.dispose();
+    g.computeBoundingBox();
+    vesselBox.copy(g.boundingBox);
     mesh(g, 'wall', body);
   }
 
   // ── plaque (back half inside the window, cut faces at the top/bottom) – reshaped as it is compressed ──
   const plaqueRefills = [];
   {
-    const cap = C('#f5eacb'), core = C('#e8b23a'), base = C('#ebcb7c');
+    const cap = C('#f1d99e'), core = C('#e6ad32'), base = C('#ebc877');
     const surf = paramGrid(64, 36, (u, v, o) => {
       const x = lerp(-PX, PX, u), th = Math.PI + v * Math.PI;
       setP(o, x, th, wallIn(x, th) - plaqueNow(x, th));
     }, { color: (P, u, v, out) => {
       const n = noise3(P.x * 3, P.y * 3, P.z * 3, 31);
-      out.copy(cap).lerp(core, 0.12 + 0.12 * n).multiplyScalar(1 + 0.05 * n);
+      out.copy(cap).lerp(core, 0.22 + 0.2 * n).multiplyScalar(1 + 0.06 * n);
     } });
     const g = new THREE.Group();
     body.add(g);
@@ -673,7 +676,7 @@ export function create() {
       let scale = 1;
       if (blocked && x > GATE - 0.9) scale = clamp01((GATE - x) / 0.9);
       if ((blocked && x >= GATE) || x > XL + 0.4) { // recycle at the inlet
-        x = -XL - 0.4 - rng() * 0.3;
+        x = -XL - 0.4 - rng() * XL; // re-enter spread out in time
         crho[i] = Math.sqrt(rng()) * 0.9;
         cadm[i] = rng();
         scale = 0;
@@ -702,10 +705,11 @@ export function create() {
   // ── apply the state to devices/plaque (only when it changes) ──
   const collapse = (o) => { o.visible = false; o.scale.setScalar(1e-4); o.position.set(0, 0, 0); };
   const expand = (o) => { o.visible = true; o.scale.setScalar(1); };
-  let lastT = -1;
+  let lastT = -1, lastBal = '', lastStent = '', lastPlaque = '';
   const applyState = () => {
     if (S.T === lastT) return;
     lastT = S.T;
+    const kBal = S.rB + '|' + S.inflate, kStent = S.stentR + '|' + S.stentA + '|' + S.stentX, kPlq = S.push2 + '|' + S.push3;
     // wire
     if (S.wireTip > CLIP + 0.02) { expand(wireG); wireG.position.x = S.wireTip; M.wire.userData.clipX.value = CLIP - S.wireTip; } else collapse(wireG);
     // catheter + balloon
@@ -713,22 +717,23 @@ export function create() {
       expand(cathG); cathG.position.x = S.xB;
       const c = CLIP - S.xB;
       M.catheter.userData.clipX.value = c; M.balloon.userData.clipX.value = c;
-      balloonRefill();
+      if (kBal !== lastBal) { lastBal = kBal; balloonRefill(); }
     } else collapse(cathG);
     // stent
     if (S.stentX + STENT_HALF > CLIP + 0.02) {
       stent.mesh.visible = true; stent.mesh.scale.setScalar(1);
       M.stent.userData.clipX.value = CLIP;
-      stent.refill(S.stentR, S.stentA, S.stentX);
+      if (kStent !== lastStent) { lastStent = kStent; stent.refill(S.stentR, S.stentA, S.stentX); }
     } else { stent.mesh.visible = false; stent.mesh.scale.setScalar(1e-4); }
-    for (const f of plaqueRefills) f();
+    if (kPlq !== lastPlaque) { lastPlaque = kPlq; for (const f of plaqueRefills) f(); }
   };
 
-  // ── normalise: ~1 unit long, centred ──
+  // ── normalise: ~1 unit long, centred (bounds = the vessel itself; devices/cells stay inside it) ──
   applyState();
   updateCells(0);
-  const box = new THREE.Box3().setFromObject(body);
-  const size = box.getSize(new THREE.Vector3()), ctr = box.getCenter(new THREE.Vector3());
+  cells.boundingBox = vesselBox.clone(); // fixed bounds: cells waiting upstream must not inflate them
+  cells.boundingSphere = vesselBox.getBoundingSphere(new THREE.Sphere());
+  const size = vesselBox.getSize(new THREE.Vector3()), ctr = vesselBox.getCenter(new THREE.Vector3());
   const SC = 1 / Math.max(size.x, size.y, size.z);
   body.scale.setScalar(SC);
   body.position.copy(ctr).multiplyScalar(-SC);
