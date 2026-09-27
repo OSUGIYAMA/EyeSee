@@ -124,6 +124,7 @@ const HANDLERS = {
   feeling: (room, ws, m) => P.feeling(room, m.id),
   consentAck: (room, ws, m) => ws.role === 'patient' && P.consentAck(room, m.cp, m.status),
   consentGoto: (room, ws, m) => P.consentGoto(room, m.index),
+  consentAnswer: (room, ws, m) => ws.role === 'patient' && P.consentAnswer(room, m.q, +m.choice),
   sign: (room, ws, m) => P.sign(room, ws.role, m.dataUrl),
   // doctor
   mode: (room, ws, m) => P.setMode(room, m.mode),
@@ -136,8 +137,9 @@ const HANDLERS = {
     room.newSession(m.patientLang);
   },
   patientLang: (room, ws, m) => P.setPatientLang(room, P.normLang(m.lang), 'doctor'),
+  doctorLang: (room, ws, m) => P.setDoctorLang(room, P.normLang(m.lang)),
   reading: (room, ws, m) => {
-    room.state.reading = { plain: !!m.plain, kana: !!m.plain && !!m.kana, voice: !!m.voice };
+    room.state.reading = { plain: !!m.plain, kana: !!m.plain && !!m.kana && room.state.patientLang === 'ja', voice: !!m.voice };
     room.changed();
   },
   demoNext: (room) => P.demoNext(room),
@@ -148,7 +150,7 @@ const HANDLERS = {
     room.newSession();
   },
 };
-const DOCTOR_ONLY = new Set(['mode', 'stage', 'consentOpen', 'consentProceed', 'consentCancel', 'newSession', 'patientLang', 'reading', 'demoNext', 'demoPlay', 'demoStop', 'demoReset']);
+const DOCTOR_ONLY = new Set(['mode', 'stage', 'consentOpen', 'consentProceed', 'consentCancel', 'newSession', 'patientLang', 'doctorLang', 'reading', 'demoNext', 'demoPlay', 'demoStop', 'demoReset']);
 
 function attachWS(server) {
   const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 1_000_000 });

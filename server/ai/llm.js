@@ -12,7 +12,6 @@ export class LLMRefusal extends Error {}
 
 let fallbacksSupported = config.serverFallbacks;
 let claudeSearchSupported = config.webSearch;
-let geminiSearchSupported = true;
 
 // ---- cost guard: a global concurrency + per-minute cap on paid calls ----
 const MAX_CONCURRENT = 6;
@@ -66,12 +65,12 @@ export async function audioJsonCall({ system, prompt, schema, audio }) {
 const GEMINI_THINKING = { low: 'LOW', medium: 'MEDIUM', high: 'HIGH' };
 async function geminiCall({ system, prompt, schema, effort = 'medium', search = false }) {
   const thinking = GEMINI_THINKING[effort] || 'LOW';
-  if (search && geminiSearchSupported) {
+  if (search) {
     try {
       return await geminiJSON({ system, prompt, schema, thinking, search: true });
     } catch (err) {
-      console.warn('[llm] Gemini search + JSON failed, continuing without search:', err.message?.slice(0, 160));
-      geminiSearchSupported = false;
+      // Fall back for this call only; the next question tries search again.
+      console.warn('[llm] Gemini search + JSON failed for this call, answering without search:', err.message?.slice(0, 160));
     }
   }
   return geminiJSON({ system, prompt, schema, thinking });

@@ -124,4 +124,39 @@ export const DEMO_CONSENT = {
   omissions: [
     { severity: 'recommended', doctor: 'Confirm who will perform the procedure and when.', patient: '誰がいつ処置を行うかの確認がまだです。' },
   ],
+  quiz: [
+    {
+      doctor: 'What will be done in the PCI?',
+      patient: 'PCIでは、何をしますか？',
+      options: [
+        { doctor: 'A thin tube goes in through the wrist; a balloon and a stent open the artery.', patient: '手首から細い管を入れ、風船とステントで血管を広げる' },
+        { doctor: 'The chest is opened and the heart arteries are replaced.', patient: '胸を大きく開いて、心臓の血管をつなぎかえる' },
+        { doctor: 'Medicine alone dissolves the blockage in one day.', patient: '薬だけで、1日で詰まりを溶かす' },
+      ],
+      answer: 0,
+      why: { doctor: 'PCI goes through the wrist with a catheter, balloon and stent — no open surgery.', patient: 'PCIは手首からカテーテルを入れ、風船とステントで広げる治療です。胸は開きません。' },
+    },
+    {
+      doctor: 'Which risks did the doctor explain?',
+      patient: '医師が説明したリスクはどれですか？',
+      options: [
+        { doctor: 'There are no risks at all.', patient: 'リスクはまったくない' },
+        { doctor: 'Bleeding or bruising at the wrist, dye allergy; rarely heart attack or stroke.', patient: '手首の出血やあざ、造影剤アレルギー。まれに心筋梗塞や脳卒中' },
+        { doctor: 'A stroke will certainly happen.', patient: '必ず脳卒中が起こる' },
+      ],
+      answer: 1,
+      why: { doctor: 'Common: bleeding/bruising and dye allergy; rare (<1 in 100): artery damage, heart attack, stroke.', patient: 'よくあるのは出血やあざ、造影剤アレルギー。まれに（100人に1人未満）心筋梗塞や脳卒中があります。' },
+    },
+    {
+      doctor: 'Are there other options besides PCI?',
+      patient: 'PCI以外の選択肢はありますか？',
+      options: [
+        { doctor: 'No, PCI is the only way.', patient: 'いいえ、PCIしか方法はない' },
+        { doctor: 'You cannot decide to have no treatment.', patient: '治療を受けないと決めることはできない' },
+        { doctor: 'Yes: medication alone, bypass surgery, or no procedure.', patient: 'はい。薬だけの治療、バイパス手術、処置を受けない選択もある' },
+      ],
+      answer: 2,
+      why: { doctor: 'Alternatives were medication alone, bypass surgery, or no procedure (higher heart-attack risk).', patient: '薬だけの治療、バイパス手術、処置を受けない選択（心筋梗塞のリスクは高いまま）があります。' },
+    },
+  ],
 };

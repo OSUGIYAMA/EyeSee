@@ -12,11 +12,18 @@ fs.mkdirSync(DIR, { recursive: true });
 
 export const canSpeak = () => !!gemini;
 
+const inflight = new Map();
+
 /** @returns {Promise<string>} path to a cached WAV file */
-export async function speak(text, lang) {
+export function speak(text, lang) {
   const key = crypto.createHash('sha1').update(`${lang}|${text}`).digest('hex');
   const file = path.join(DIR, `${key}.wav`);
-  if (fs.existsSync(file)) return file;
+  if (fs.existsSync(file)) return Promise.resolve(file);
+  if (!inflight.has(key)) inflight.set(key, synth(text, file).finally(() => inflight.delete(key)));
+  return inflight.get(key);
+}
+
+async function synth(text, file) {
   const res = await limited(() =>
     gemini.models.generateContent({
       model: config.ttsModel,

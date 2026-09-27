@@ -70,6 +70,11 @@ const UI = {
     another: 'Another spot',
     feelingsShort: 'Feelings',
     whereTitle: 'Point to where it hurts',
+    answering: 'Answer',
+    sources: 'Sources',
+    toAI: 'To AI',
+    quizWrong: 'Not quite. Listen to the doctor, then try again.',
+    agreeing: 'You are agreeing to',
   },
   ja: {
     tagline: '医師の言葉が、わかる。',
@@ -130,6 +135,11 @@ const UI = {
     another: 'もう一か所',
     feelingsShort: '気持ち',
     whereTitle: '痛いところを指してください',
+    answering: '回答',
+    sources: '出典',
+    toAI: 'AIへ',
+    quizWrong: 'ちがいます。医師の説明を聞いてから、もう一度えらんでください。',
+    agreeing: '同意する内容',
   },
 };
 

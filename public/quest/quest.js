@@ -275,42 +275,63 @@ const occluders = [0, 1].map((i) => new HandOccluder(renderer.xr.getHand(i)));
 
 // ================================================================ scrolling
 
-/** Pinch/drag scrolling with momentum and rubber-band edges. `y` = px scrolled back from the newest. */
+/**
+ * Pinch/drag scrolling with momentum and rubber-band edges. `y` = px scrolled away from the anchor
+ * (the newest line for the conversation, the top for lists). A small dead zone swallows the jump a
+ * hand makes at the moment of pinching; the drag then follows smoothly.
+ */
 class Scroller {
   constructor(fromBottom = true) {
     this.y = 0;
+    this.target = 0;
     this.v = 0;
     this.max = 0;
     this.drag = null;
     this.sign = fromBottom ? 1 : -1;
   }
   press(uvY, H) {
-    this.drag = { y0: uvY * H, s0: this.y, moved: 0, last: uvY * H, lt: now() };
+    this.drag = { y0: uvY * H, s0: this.y, moved: 0, active: false, last: uvY * H, lt: now() };
     this.v = 0;
+    this.settle = false;
   }
   move(uvY, H) {
-    if (!this.drag) return false;
+    const d0 = this.drag;
+    if (!d0) return false;
     const y = uvY * H;
-    const d = (y - this.drag.y0) * this.sign;
-    this.drag.moved = Math.max(this.drag.moved, Math.abs(d));
+    const raw = (y - d0.y0) * this.sign;
+    d0.moved = Math.max(d0.moved, Math.abs(raw));
+    if (!d0.active) {
+      if (Math.abs(raw) < 16) return false;
+      d0.active = true; // start from here: no jump when the dead zone is crossed
+      d0.y0 = y;
+      d0.s0 = this.y;
+      d0.last = y;
+      d0.lt = now();
+      return true;
+    }
     const n = now();
-    this.v = (-(y - this.drag.last) * this.sign) / Math.max(1e-3, n - this.drag.lt);
-    this.drag.last = y;
-    this.drag.lt = n;
-    let s = this.drag.s0 - d;
-    if (s < 0) s *= 0.35;
-    if (s > this.max) s = this.max + (s - this.max) * 0.35;
-    this.y = s;
-    return this.drag.moved > 10;
+    const inst = (-(y - d0.last) * this.sign) / Math.max(1e-3, n - d0.lt);
+    this.v = this.v * 0.6 + inst * 0.4;
+    d0.last = y;
+    d0.lt = n;
+    let t = d0.s0 - raw;
+    if (t < 0) t *= 0.35;
+    if (t > this.max) t = this.max + (t - this.max) * 0.35;
+    this.target = t;
+    return true;
   }
   release() {
-    const wasDrag = !!this.drag && this.drag.moved > 10;
+    const wasDrag = !!this.drag?.active;
     this.drag = null;
     if (!wasDrag) this.v = 0;
     return wasDrag;
   }
   step(dt) {
-    if (this.drag) return true;
+    if (this.drag) {
+      if (!this.drag.active) return false;
+      this.y += (this.target - this.y) * Math.min(1, dt * 22); // filter hand-tracking jitter
+      return true;
+    }
     if (this.settle) {
       this.y += (0 - this.y) * Math.min(1, dt * 7);
       if (Math.abs(this.y) < 0.5) (this.y = 0), (this.settle = false);
@@ -338,8 +359,90 @@ class Scroller {
     this.settle = true;
   }
 }
-const convScroll = new Scroller(true);
-const glossScroll = new Scroller(false);
+
+/**
+ * Scrolling content drawn once onto a tall texture. Scrolling only moves the window the shader
+ * samples, so it runs at full frame rate on the headset; the canvas is repainted only when the
+ * content changes. Edges fade softly.
+ */
+class ScrollView {
+  constructor(parent, { w, h, ppm, screens = 3, x = 0, y = 0, z = 0.002, anchor = 'bottom' }) {
+    this.w = w;
+    this.h = h;
+    this.W = Math.round(w * ppm);
+    this.Vh = Math.round(h * ppm);
+    this.CH = this.Vh * screens;
+    this.anchor = anchor;
+    this.canvas = document.createElement('canvas');
+    this.canvas.width = this.W;
+    this.canvas.height = this.CH;
+    this.ctx = this.canvas.getContext('2d');
+    this.texture = new THREE.CanvasTexture(this.canvas);
+    this.texture.colorSpace = THREE.SRGBColorSpace;
+    this.texture.anisotropy = 8;
+    this.texture.minFilter = THREE.LinearMipmapLinearFilter;
+    this.material = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      uniforms: { map: { value: this.texture }, win: { value: new THREE.Vector2(0, 1) }, opacity: { value: 1 } },
+      vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+      fragmentShader: `uniform sampler2D map; uniform vec2 win; uniform float opacity; varying vec2 vUv;
+        void main(){
+          float v = win.x + vUv.y * win.y;
+          vec4 c = (v < 0.0 || v > 1.0) ? vec4(0.0) : texture2D(map, vec2(vUv.x, v));
+          float edge = smoothstep(0.0, 0.06, vUv.y) * smoothstep(1.0, 0.94, vUv.y);
+          gl_FragColor = vec4(c.rgb, c.a * edge * opacity);
+          #include <colorspace_fragment>
+        }`,
+    });
+    this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h), this.material);
+    this.mesh.position.set(x, y, z);
+    this.mesh.renderOrder = 3;
+    this.mesh.userData.panel = { w, h, hit: (uv) => this.hit(uv) };
+    parent.add(this.mesh);
+    this.scroll = new Scroller(anchor === 'bottom');
+    this.regions = [];
+    this.used = 0;
+    this.sig = null;
+  }
+  /** Repaint when `sig` changed. fn(ctx, view) returns the content height it used. */
+  paint(fn, sig) {
+    if (sig !== undefined && sig === this.sig) return false;
+    this.sig = sig;
+    const ctx = this.ctx;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, this.W, this.CH);
+    this.regions = [];
+    const before = this.used;
+    this.used = Math.min(this.CH, Math.max(0, fn(ctx, this)));
+    this.scroll.max = Math.max(0, this.used - this.Vh);
+    // New content at the anchor pushes the rest along smoothly.
+    if (this.anchor === 'bottom' && this.used > before && this.scroll.y < 2 && !this.scroll.drag && before > 0) this.scroll.glide(this.used - before);
+    this.texture.needsUpdate = true;
+    return true;
+  }
+  region(x, y, w, h, action, id) {
+    this.regions.push({ x, y, w, h, action, id });
+  }
+  /** Canvas y of the visible window's top edge. */
+  get top() {
+    return this.anchor === 'bottom' ? this.CH - this.scroll.y - this.Vh : this.scroll.y;
+  }
+  hit(uv) {
+    const cx = uv.x * this.W;
+    const cy = this.top + (1 - uv.y) * this.Vh;
+    for (let i = this.regions.length - 1; i >= 0; i--) {
+      const r = this.regions[i];
+      if (cx >= r.x && cx <= r.x + r.w && cy >= r.y && cy <= r.y + r.h) return r;
+    }
+    return null;
+  }
+  sync() {
+    const vBottom = (this.CH - (this.top + this.Vh)) / this.CH;
+    this.material.uniforms.win.value.set(vBottom, this.Vh / this.CH);
+  }
+}
+
 
 // ================================================================ state
 
@@ -388,6 +491,7 @@ function convItems() {
       else if (ty === 'symptom' && !e.removed) items.push({ e, type: 'caption' });
       else if (['feeling', 'signature'].includes(ty)) items.push({ e, type: 'caption' });
     } else if (e.kind === 'system' && ['language', 'signed'].includes(e.event?.type)) items.push({ e, type: 'caption' });
+    else if (e.kind === 'system' && e.event?.type === 'summary') items.push({ e, type: 'summary' });
   }
   if (S.speaking?.doctor) items.push({ type: 'typing-doctor', e: { id: 'typing-doctor', v: 0 } });
   if (rec.speaking && !aiHolding) items.push({ type: 'typing-me', e: { id: 'typing-me', v: 0 } });
@@ -466,13 +570,15 @@ function layout(ctx, item, w) {
     };
   } else if (item.type === 'ai') {
     const a = e.ai;
-    const q = `${a.from === 'doctor' ? t('doctorAsked') : t('youAsked')}  ${a.question?.patient || ''}`;
+    const q = a.from === 'system' ? a.question?.patient || '' : a.replyTo ? t('answering') : `${a.from === 'doctor' ? t('doctorAsked') : t('youAsked')}  ${a.question?.patient || ''}`;
+    const src = (a.sources || []).length ? `${t('sources')}  ${a.sources.map((x) => x.title).slice(0, 3).join(' · ')}` : '';
     const ans = a.pending ? '' : a.answer?.patient || '';
     const om = (a.omissions || []).map((o) => `・${o.patient}`).join('\n');
     const hQ = paraHeight(ctx, q, w - 44, 22, 500, 1.35, 2);
     const hA = ans ? paraHeight(ctx, ans, w - 44, 32, 500, 1.4) : 34;
     const hO = om ? paraHeight(ctx, om, w - 44, 26, 500, 1.4) + 12 : 0;
-    const h = hQ + 12 + hA + hO;
+    const hS = src ? paraHeight(ctx, src, w - 44, 20, 500, 1.35, 2) + 10 : 0;
+    const h = hQ + 12 + hA + hO + hS;
     L = {
       h,
       draw(c, x, y) {
@@ -482,6 +588,22 @@ function layout(ctx, item, w) {
         if (ans) para(c, ans, x + 44, ay, w - 44, 32, C.text, 500, 1.4);
         else dots(c, x + 44, ay + 10, 12, now(), C.text2);
         if (om) para(c, om, x + 44, ay + hA + 12, w - 44, 26, C.text2, 500, 1.4);
+        if (src) para(c, src, x + 44, ay + hA + hO + 10, w - 44, 20, C.text3, 500, 1.35, 2);
+      },
+    };
+  } else if (item.type === 'summary') {
+    const lines = (e.event.items || []).map((x) => `・${x.patient}`).join('\n');
+    const hT = 36;
+    const hL = paraHeight(ctx, lines, w - 48, 27, 500, 1.45);
+    const h = hT + hL + 44;
+    L = {
+      h,
+      draw(c, x, y) {
+        rr(c, x, y, w, h, 28);
+        c.fillStyle = 'rgba(255,255,255,0.07)';
+        c.fill();
+        text(c, t('agreeing'), x + 24, y + 20, 24, C.text2, 700);
+        para(c, lines, x + 24, y + 20 + hT, w - 48, 27, C.text, 500, 1.45);
       },
     };
   } else if (item.type === 'help') {
@@ -499,86 +621,88 @@ function layout(ctx, item, w) {
   return L;
 }
 
+// The frame (glass, understanding meter) and the scrolling content are separate layers.
+const CONV_TOP = 118;
+const CONV_BOTTOM = 58;
+const convView = new ScrollView(conv.mesh, {
+  w: conv.w - (PAD * 2) / 1100,
+  h: (conv.H - CONV_TOP - CONV_BOTTOM) / 1100,
+  ppm: 1100,
+  y: (CONV_BOTTOM - CONV_TOP) / 2 / 1100,
+});
+const convScroll = convView.scroll;
+
 function drawConversation() {
   const items = convItems();
   const u = S.understanding;
   const showMeter = u.score > 0 || !!S.consent;
-  const top = showMeter ? 132 : 58;
-  const bottom = conv.H - 52;
-  const w = conv.W - PAD * 2;
-  const ctx = conv.ctx;
+  const w = convView.W;
+  const ctx = convView.ctx;
   const hs = items.map((it) => layout(ctx, it, w).h);
   const gaps = items.map((it, i) => (i === 0 ? 0 : it.type === 'caption' || items[i - 1].type === 'caption' ? 22 : 34));
-  const total = hs.reduce((a, b) => a + b, 0) + gaps.reduce((a, b) => a + b, 0);
-  convScroll.max = Math.max(0, total - (bottom - top));
-  if (total > convTotal && convScroll.y < 2 && !convScroll.drag) convScroll.glide(total - convTotal);
-  convTotal = total;
-  const n = now();
-  let animating = false;
-  conv.draw((c, p) => {
-    glass(c, 0, 0, p.W, p.H, 60);
-    // Consent phase: how far shared understanding has come.
-    if (showMeter) {
-      const thr = caps.consentThreshold ?? 7;
-      text(c, t('understanding'), PAD, 46, 24, C.text2, 600);
-      const segW = 34, gap = 8, x0 = p.W - PAD - 10 * segW - 9 * gap;
-      for (let i = 0; i < 10; i++) {
-        rr(c, x0 + i * (segW + gap), 56, segW, 10, 5);
-        c.fillStyle = i < u.score ? (u.score >= thr ? C.green : '#ffffff') : C.fill;
-        c.fill();
-      }
-      text(c, `${u.score}/10`, x0 - 20, 46, 24, C.text2, 600, 'right');
-      c.fillStyle = C.sep;
-      c.fillRect(PAD, 104, p.W - PAD * 2, 2);
-    }
-    if (!(link.connected && presence.doctor)) text(c, t('disconnected'), p.W / 2, showMeter ? 12 : 18, 20, C.orange, 600, 'center');
 
-    c.save();
-    rr(c, 0, top - 8, p.W, bottom - top + 16, 0);
-    c.clip();
-    if (!items.length) para(c, t('empty'), PAD, (top + bottom) / 2 - 24, w, 30, C.text3, 500, 1.4, 2, { align: 'center' });
-    let y = bottom + convScroll.y;
-    for (let i = items.length - 1; i >= 0; i--) {
-      const L = layout(c, items[i], w);
-      const y0 = y - L.h;
-      if (y < top - 20) break;
-      if (y0 < bottom + 20) {
-        const id = items[i].e.id;
-        if (!seen.has(id)) seen.set(id, n);
-        const k = Math.min(1, (n - seen.get(id)) / 0.38);
-        if (k < 1 || items[i].e.pending || items[i].type.startsWith('typing')) animating = true;
-        const ease = 1 - Math.pow(1 - k, 3);
-        c.globalAlpha = ease;
-        L.draw(c, PAD, y0 + (1 - ease) * 26);
-        c.globalAlpha = 1;
-        if (items[i].type === 'doctor' && !items[i].e.pending) p.region(0, Math.max(top, y0), p.W, L.h, () => select(id), `line:${id}`);
+  // Content: painted only when it changes, newest at the bottom.
+  convView.paint(
+    (c, v) => {
+      if (!items.length) {
+        para(c, t('empty'), 0, v.CH - v.Vh / 2 - 24, w, 30, C.text3, 500, 1.4, 2, { align: 'center' });
+        return v.Vh;
       }
-      y = y0 - gaps[i];
-    }
-    c.restore();
-    // Scrolled back: a small capsule returns to the newest line.
-    if (convScroll.y > 60) button(p, p.W / 2 - 60, bottom - 22, 120, 50, '↓', () => convScroll.toStart(), { id: 'latest', size: 26 });
-  });
-  return animating;
+      let y = v.CH - 10;
+      for (let i = items.length - 1; i >= 0 && y > 0; i--) {
+        const L = layout(c, items[i], w);
+        const y0 = y - hs[i];
+        L.draw(c, 0, y0);
+        if (items[i].type === 'doctor' && !items[i].e.pending) v.region(0, y0, w, hs[i], () => select(items[i].e.id), `line:${items[i].e.id}`);
+        y = y0 - gaps[i];
+      }
+      return v.CH - y;
+    },
+    JSON.stringify([items.map((it) => `${it.type}:${it.e.id}:${it.e.v}`), selected, packLang, fontsReady, S.patientLang]),
+  );
+
+  // Frame: glass, meter, and a way back to the newest line.
+  const away = convScroll.y > 60;
+  conv.draw(
+    (c, p) => {
+      glass(c, 0, 0, p.W, p.H, 60);
+      if (showMeter) {
+        const thr = caps.consentThreshold ?? 7;
+        text(c, t('understanding'), PAD, 44, 24, C.text2, 600);
+        const segW = 34, gap = 8, x0 = p.W - PAD - 10 * segW - 9 * gap;
+        for (let i = 0; i < 10; i++) {
+          rr(c, x0 + i * (segW + gap), 54, segW, 10, 5);
+          c.fillStyle = i < u.score ? (u.score >= thr ? C.green : '#ffffff') : C.fill;
+          c.fill();
+        }
+        text(c, `${u.score}/10`, x0 - 20, 44, 24, C.text2, 600, 'right');
+        c.fillStyle = C.sep;
+        c.fillRect(PAD, 100, p.W - PAD * 2, 2);
+      }
+      if (!(link.connected && presence.doctor)) text(c, t('disconnected'), p.W / 2, showMeter ? 10 : 30, 20, C.orange, 600, 'center');
+      if (away) button(p, p.W / 2 - 60, p.H - 52, 120, 42, '↓', () => convScroll.toStart(), { id: 'latest', size: 24 });
+    },
+    JSON.stringify([showMeter, u.score, link.connected, presence.doctor, away, packLang, fontsReady]),
+  );
+  return false;
 }
-
-let convTotal = 0;
 
 function select(id) {
   selected = selected === id ? null : id;
+  layoutCache.delete(id);
   invalidate();
 }
 
 ix.add({
-  object: conv.mesh,
+  object: convView.mesh,
   kind: 'panel',
-  onHover: (h) => conv.setHover(h?.region?.id ?? null),
-  onPress: (h) => convScroll.press(h.uv.y, conv.H),
-  onDrag: (h) => convScroll.move(h.uv.y, conv.H) && (dirty = true),
+  onPress: (h) => convScroll.press(h.uv.y, convView.Vh),
+  onDrag: (h) => convScroll.move(h.uv.y, convView.Vh),
   onRelease: (h) => {
     if (!convScroll.release() && h?.region) h.region.action?.();
   },
 });
+ix.add({ object: conv.mesh, kind: 'panel', onHover: (h) => conv.setHover(h?.region?.id ?? null), onPress: (h) => h.region?.action?.() });
 conv.onChange = invalidate;
 
 // ---- the window bar under the conversation: tap to bring everything back in front
@@ -595,54 +719,62 @@ function glossTerms() {
   return S.entries.filter((e) => e.kind === 'speech').flatMap((e) => (e.terms || []).filter((x) => x.audience === 'patient').map((x) => ({ ...x, entryId: e.id }))).reverse();
 }
 
+const GLOSS_TOP = 112;
+const glossView = new ScrollView(gloss.mesh, {
+  w: gloss.w - (PAD * 2) / 1100,
+  h: (gloss.H - GLOSS_TOP - 36) / 1100,
+  ppm: 1100,
+  y: (36 - GLOSS_TOP) / 2 / 1100,
+  anchor: 'top',
+  screens: 3,
+});
+const glossScroll = glossView.scroll;
+
 function drawGlossary() {
   const terms = glossTerms();
   glossWin.show(terms.length > 0 && !S.consent);
   if (!terms.length) return false;
-  const ctx = gloss.ctx;
-  const w = gloss.W - PAD * 2;
-  const rows = terms.map((x) => {
-    const hD = paraHeight(ctx, x.display, w, 34, 600, 1.3, 2);
-    const hE = paraHeight(ctx, x.explanation, w, 25, 500, 1.45, 5);
-    return { x, hD, hE, h: hD + 10 + hE + (caps.image ? 70 : 0) };
-  });
-  const top = 116, bottom = gloss.H - 40;
-  const total = rows.reduce((a, r) => a + r.h + 34, 0);
-  glossScroll.max = Math.max(0, total - (bottom - top));
   gloss.draw((c, p) => {
     glass(c, 0, 0, p.W, p.H, 60);
-    text(c, t('words'), PAD, 46, 32, C.text, 700);
-    c.save();
-    rr(c, 0, top - 6, p.W, bottom - top + 12, 0);
-    c.clip();
-    let y = top - glossScroll.y;
-    rows.forEach((r, i) => {
-      if (y > bottom || y + r.h < top - 40) return (y += r.h + 34);
-      if (i) (c.fillStyle = C.sep), c.fillRect(PAD, y - 17, w, 2);
-      para(c, r.x.display, PAD, y, w, 34, C.text, 600, 1.3, 2);
-      para(c, r.x.explanation, PAD, y + r.hD + 10, w, 25, C.text2, 500, 1.45, 5);
-      if (caps.image) {
-        const by = y + r.hD + 10 + r.hE + 16;
-        const label = r.x.image === 'pending' ? t('drawing') : t('showPicture');
-        button(p, PAD, by, measure(c, label, 24, 600) + 56, 50, label, r.x.image === 'pending' ? null : () => link.send({ type: 'termImage', entryId: r.x.entryId, termId: r.x.id }), { id: `pic:${r.x.id}`, size: 24 });
-      }
-      y += r.h + 34;
-    });
-    c.restore();
-  }, JSON.stringify([rows.map((r) => r.x.id + r.x.image), Math.round(glossScroll.y), packLang, fontsReady, caps.image]));
+    text(c, t('words'), PAD, 44, 32, C.text, 700);
+  }, JSON.stringify([packLang, fontsReady]));
+  const w = glossView.W;
+  glossView.paint(
+    (c, v) => {
+      let y = 10;
+      terms.forEach((x, i) => {
+        if (y > v.CH - 200) return;
+        if (i) (c.fillStyle = C.sep), c.fillRect(0, y - 17, w, 2);
+        const hD = para(c, x.display, 0, y, w, 34, C.text, 600, 1.3, 2);
+        const hE = para(c, x.explanation, 0, y + hD + 10, w, 25, C.text2, 500, 1.45, 5);
+        y += hD + 10 + hE;
+        if (caps.image) {
+          const label = x.image === 'pending' ? t('drawing') : t('showPicture');
+          const bw = measure(c, label, 24, 600) + 56;
+          rr(c, 0, y + 16, bw, 50, 25);
+          c.fillStyle = C.fill;
+          c.fill();
+          text(c, label, bw / 2, y + 28, 24, x.image === 'pending' ? C.text3 : C.text, 600, 'center');
+          if (x.image !== 'pending') v.region(0, y + 16, bw, 50, () => link.send({ type: 'termImage', entryId: x.entryId, termId: x.id }), `pic:${x.id}`);
+          y += 70;
+        }
+        y += 34;
+      });
+      return y;
+    },
+    JSON.stringify([terms.map((x) => x.id + x.image), packLang, fontsReady, caps.image]),
+  );
   return false;
 }
 ix.add({
-  object: gloss.mesh,
+  object: glossView.mesh,
   kind: 'panel',
-  onHover: (h) => gloss.setHover(h?.region?.id ?? null),
-  onPress: (h) => glossScroll.press(h.uv.y, gloss.H),
-  onDrag: (h) => glossScroll.move(h.uv.y, gloss.H) && (dirty = true),
+  onPress: (h) => glossScroll.press(h.uv.y, glossView.Vh),
+  onDrag: (h) => glossScroll.move(h.uv.y, glossView.Vh),
   onRelease: (h) => {
     if (!glossScroll.release() && h?.region) h.region.action?.();
   },
 });
-gloss.onChange = invalidate;
 
 const images = new Map();
 function loadImage(url) {
@@ -661,14 +793,39 @@ function loadImage(url) {
 
 // ================================================================ picture window (generated illustration)
 
+// Tap the picture (or wait) and it flies back to where it came from — the glossary term or the
+// conversation — so it never lingers in front of the patient.
+const picHome = pic.mesh.position.clone();
+let picDismissed = null;
+let picAutoTimer = null;
+let picAutoFor = null;
+function dismissPicture() {
+  const st = S.stage;
+  if (st?.tool !== 'image' || picDismissed === st.openedAt) return;
+  picDismissed = st.openedAt;
+  clearTimeout(picAutoTimer);
+  const to = st.termId ? gloss.mesh.position : conv.mesh.position;
+  tween(pic.mesh.position, { x: to.x, y: to.y, z: to.z }, 420);
+  picWin.show(false);
+  setTimeout(() => {
+    pic.mesh.position.copy(picHome);
+    link.send({ type: 'closeImage' });
+  }, 440);
+}
+
 function drawPicture() {
   const st = S.consent ? null : S.stage;
-  const on = st?.tool === 'image';
+  const on = st?.tool === 'image' && picDismissed !== st.openedAt;
   picWin.show(on);
   if (!on) return false;
   const img = st.url ? loadImage(st.url) : null;
   const n = now();
   const fade = img ? Math.min(1, (n - (img.loadedAt || n - 1)) / 0.6) : 0;
+  if (img && picAutoFor !== st.openedAt) {
+    picAutoFor = st.openedAt;
+    clearTimeout(picAutoTimer);
+    picAutoTimer = setTimeout(dismissPicture, 30000);
+  }
   pic.draw((c, p) => {
     glass(c, 0, 0, p.W, p.H, 52);
     const s = p.W - 64;
@@ -700,11 +857,11 @@ function drawPicture() {
     const cy = 32 + s + 26;
     para(c, stripReading(st.caption?.patient || ''), 36, cy, p.W - 72, 32, C.text, 700, 1.3, 1);
     if (st.caption?.detail) para(c, st.caption.detail, 36, cy + 46, p.W - 72, 22, C.text2, 500, 1.4, 3);
-    button(p, p.W - 92, 46, 50, 50, '×', () => link.send({ type: 'closeImage' }), { id: 'close', size: 32, weight: 400 });
+
   });
   return !img || fade < 1;
 }
-ix.add({ object: pic.mesh, kind: 'panel', onHover: (h) => pic.setHover(h?.region?.id ?? null), onPress: (h) => h.region?.action?.() });
+ix.add({ object: pic.mesh, kind: 'panel', onPress: () => dismissPicture() });
 pic.onChange = invalidate;
 
 // ================================================================ task sheet (near the hands)
@@ -807,6 +964,29 @@ function drawSheet() {
       return;
     }
 
+    if (mode === 'consent-quiz') {
+      const i = Math.max(0, c.qIndex || 0);
+      const q = c.quiz[i];
+      c.quiz.forEach((x, j) => {
+        ctx.beginPath();
+        ctx.arc(W - X - (c.quiz.length - 1 - j) * 26 - 6, 50, 7, 0, Math.PI * 2);
+        ctx.fillStyle = x.passed ? C.green : j === i ? C.text : C.fill;
+        ctx.fill();
+      });
+      text(ctx, `${i + 1} / ${c.quiz.length}`, X, 36, 24, C.text3, 600);
+      const last = q.tries[q.tries.length - 1];
+      const wrong = last && !last.ok;
+      let y = 78;
+      y += para(ctx, q.patient, X, y, W - X * 2, 30, C.text, 700, 1.38, 2);
+      if (wrong) para(ctx, t('quizWrong'), X, y + 6, W - X * 2, 21, C.orange, 600, 1.35, 1);
+      const oh = 60, gap = 10, oy = H - 3 * (oh + gap) - 14;
+      q.options.forEach((o, k) => {
+        const picked = wrong && last.choice === k;
+        button(p, X, oy + k * (oh + gap), W - X * 2, oh, o.patient, () => link.send({ type: 'consentAnswer', q: q.id, choice: k }), { id: `o${i}:${k}`, size: 24, r: 22, tint: picked ? 'rgba(255,159,10,0.35)' : null });
+      });
+      return;
+    }
+
     if (mode === 'consent-review') {
       const i = Math.max(0, c.index);
       const cp = c.checkpoints[i];
@@ -861,7 +1041,7 @@ function drawSheet() {
       ctx.stroke();
       text(ctx, t('recorded'), W / 2, H / 2 + 20, 30, C.text, 700, 'center');
     }
-  }, JSON.stringify([mode, st, S.symptoms, c && { s: c.status, i: c.index, a: c.checkpoints.map((x) => x.ack), g: Object.keys(c.signatures || {}) }, hoverPain, strokes.length, packLang, fontsReady, stageMeta?.id, mode.startsWith('consent-pre') ? Math.floor(n * 10) : 0]));
+  }, JSON.stringify([mode, st, S.symptoms, c && { s: c.status, i: c.index, q: c.qIndex, t: (c.quiz || []).map((x) => x.tries.length + ':' + x.passed), a: c.checkpoints.map((x) => x.ack), g: Object.keys(c.signatures || {}) }, hoverPain, strokes.length, packLang, fontsReady, stageMeta?.id, mode.startsWith('consent-pre') ? Math.floor(n * 10) : 0]));
   return animating;
 }
 
@@ -1048,7 +1228,7 @@ function maybeSpeak() {
   for (const e of S.entries) {
     if (e.kind !== 'speech' || e.speaker !== 'doctor' || e.pending || spokenIds.has(e.id)) continue;
     spokenIds.add(e.id);
-    if (!S.reading?.voice || Date.now() - Date.parse(e.ts) > 20000) continue;
+    if (S.reading?.voice === false || Date.now() - Date.parse(e.ts) > 20000) continue;
     const text = readFor(e, S.patientLang, { plain: true }).main;
     if (text) speakQueue.push({ id: e.id, text });
   }
@@ -1068,25 +1248,45 @@ async function playNext() {
   speakingNow = false;
   playNext();
 }
-function speakText(item) {
-  const lang = S.patientLang;
-  const voice = 'speechSynthesis' in window ? speechSynthesis.getVoices().find((v) => v.lang?.toLowerCase().startsWith(lang)) : null;
-  if (voice)
-    return new Promise((resolve) => {
+// Spoken through Web Audio (reliable inside an immersive session); the browser's own voice is only
+// a fallback, since on the headset it can be silent in XR. Every clip has a time limit so the
+// queue can never get stuck.
+let voiceCtx = null;
+async function speakText(item) {
+  voiceCtx ||= new (window.AudioContext || window.webkitAudioContext)();
+  if (voiceCtx.state === 'suspended') await voiceCtx.resume().catch(() => {});
+  try {
+    const res = await fetch(`/api/tts?room=${encodeURIComponent(room)}&entry=${item.id}`);
+    if (!res.ok) throw new Error(`tts ${res.status}`);
+    const buf = await voiceCtx.decodeAudioData(await res.arrayBuffer());
+    await new Promise((resolve) => {
+      const src = voiceCtx.createBufferSource();
+      src.buffer = buf;
+      src.playbackRate.value = S.reading?.plain ? 0.95 : 1;
+      src.connect(voiceCtx.destination);
+      src.onended = resolve;
+      src.start();
+      setTimeout(resolve, buf.duration * 1000 + 1500);
+    });
+  } catch {
+    const lang = S.patientLang;
+    const voice = 'speechSynthesis' in window ? speechSynthesis.getVoices().find((v) => v.lang?.toLowerCase().startsWith(lang)) : null;
+    if (!voice) return;
+    await new Promise((resolve) => {
       const u = new SpeechSynthesisUtterance(item.text);
       u.voice = voice;
       u.lang = voice.lang;
-      u.rate = S.reading?.plain ? 0.9 : 1;
       u.onend = u.onerror = resolve;
       speechSynthesis.speak(u);
+      setTimeout(resolve, 4000 + item.text.length * 250);
     });
-  // No local voice for this language: the server speaks it (Gemini TTS).
-  return new Promise((resolve) => {
-    const a = new Audio(`/api/tts?room=${encodeURIComponent(room)}&entry=${item.id}`);
-    a.onended = a.onerror = resolve;
-    a.play().catch(resolve);
-  });
+  }
 }
+// Unlock audio with the first tap (browsers need a gesture before sound can play).
+addEventListener('pointerdown', () => {
+  voiceCtx ||= new (window.AudioContext || window.webkitAudioContext)();
+  voiceCtx.resume().catch(() => {});
+}, { once: true });
 
 // ================================================================ microphone & AI
 
@@ -1100,7 +1300,7 @@ const rec = new Recorder({
   onLevel: (lv) => (micLevel = lv),
   // The headset mic sits next to the wearer's mouth: demand a clear, close voice and skip auto-gain
   // so other people in the room are not written down.
-  vad: { minRms: 0.03, factor: 4.5, minSpeech: 0.5, agc: false },
+  vad: { minRms: 0.018, factor: 3.6, minSpeech: 0.4, agc: true },
 });
 
 async function aiStart() {
@@ -1335,6 +1535,7 @@ function recenter() {
 }
 
 let fontsReady = false;
+let convAway = false;
 let lastT = now();
 let animUntil = 0;
 function frame() {
@@ -1349,9 +1550,16 @@ function frame() {
   // Thumbsticks scroll the conversation too.
   for (const src of ix.sources) {
     const ax = src.input?.gamepad?.axes;
-    if (ax && Math.abs(ax[3] || 0) > 0.2) (convScroll.y -= ax[3] * 900 * dt), (dirty = true);
+    if (ax && Math.abs(ax[3] || 0) > 0.2) convScroll.y = Math.max(0, Math.min(convScroll.max, convScroll.y - ax[3] * 900 * dt));
   }
-  const scrolling = convScroll.step(dt) | glossScroll.step(dt);
+  // Scrolling only moves the texture windows (cheap); frames redraw only when content changes.
+  convScroll.step(dt);
+  glossScroll.step(dt);
+  convView.sync();
+  glossView.sync();
+  glossView.material.uniforms.opacity.value = glossWin.a;
+  if (convScroll.y > 60 !== convAway) (convAway = convScroll.y > 60), (dirty = true);
+  const scrolling = false;
 
   if (S && (dirty || scrolling || n < animUntil)) {
     // Redraw only when something changed, and keep animating while anything moves.
@@ -1431,6 +1639,8 @@ function intro() {
   $('deskBtn').textContent = t('preview');
 }
 $('startBtn').onclick = async () => {
+  voiceCtx ||= new (window.AudioContext || window.webkitAudioContext)();
+  voiceCtx.resume().catch(() => {});
   try {
     await rec.setListening(micOn);
   } catch {

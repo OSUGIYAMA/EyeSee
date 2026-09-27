@@ -107,6 +107,7 @@ export function offlineConsentPackage(state) {
     procedure: { doctor: 'The proposed procedure', patient: state.patientLang === 'ja' ? '提案された治療' : 'The proposed procedure' },
     checkpoints,
     omissions: offlineOmissions(state),
+    quiz: [], // writing fair questions needs a language model
   };
 }
 

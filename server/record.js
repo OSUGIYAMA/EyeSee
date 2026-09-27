@@ -67,8 +67,10 @@ export function renderRecord(room) {
   <div class="card"><b>Status</b>${esc(c?.status || 'not started')}${c?.signedAt ? `<br><span class="muted">signed ${esc(time(c.signedAt))}</span>` : ''}</div>
   <div class="card"><b>Shared understanding</b>${u.score}/10${c?.scoreAtSign != null ? ` (at signing: ${c.scoreAtSign})` : ''}<br><span class="muted">judge: ${esc(u.source || '—')}</span></div>
 </div>
-${c?.checkpoints?.length ? `<h2>Checkpoints confirmed by the patient</h2><table><tr><th>#</th><th>English</th><th>${esc(lang)}</th><th>Patient</th></tr>
+${c?.checkpoints?.length ? `<h2>What the patient agreed to</h2><table><tr><th>#</th><th>English</th><th>${esc(lang)}</th><th>Patient</th></tr>
 ${c.checkpoints.map((cp, i) => `<tr><td>${i + 1}</td><td>${esc(cp.doctor)}</td><td>${esc(cp.patient)}</td><td>${cp.ack === 'understood' ? `<span class="ok">✓ understood</span>` : cp.ack === 'question' ? `<span class="q">? question</span>` : '—'}<br><span class="muted">${esc(clock(cp.ackTs))}</span></td></tr>`).join('')}</table>` : ''}
+${c?.quiz?.length ? `<h2>Comprehension check</h2><table><tr><th>#</th><th>Question</th><th>Correct answer</th><th>Patient's answers</th></tr>
+${c.quiz.map((q, i) => `<tr><td>${i + 1}</td><td>${esc(q.doctor)}<br><span class="muted">${esc(q.patient)}</span></td><td>${esc(q.options[q.answer]?.doctor)}</td><td>${q.tries.map((t) => `<span class="${t.ok ? 'ok' : 'q'}">${t.ok ? '✓' : '✗'} ${esc(q.options[t.choice]?.doctor)}</span> <span class="muted">${esc(clock(t.ts))}</span>`).join('<br>') || '—'}</td></tr>`).join('')}</table>` : ''}
 ${c ? `<h2>EyeSee AI final check</h2>${c.omissions?.length ? `<ul>${c.omissions.map((o) => `<li><b>[${esc(o.severity)}]</b> ${esc(o.doctor)} <span class="muted">/ ${esc(o.patient)}</span></li>`).join('')}</ul>` : '<p>No omissions found.</p>'}${c.overrides?.length ? `<p class="q">The doctor proceeded despite ${c.overrides[0].omissions.length} critical item(s) at ${esc(time(c.overrides[0].ts))}.</p>` : ''}` : ''}
 ${c?.signatures ? `<h2>Signatures</h2><div class="sig">${['patient', 'doctor'].map((r) => (c.signatures[r] ? `<figure><img src="${c.signatures[r].dataUrl}" alt="${r} signature"><figcaption>${r} · ${esc(time(c.signatures[r].ts))}</figcaption></figure>` : '')).join('')}</div>` : ''}
 ${c?.hash ? `<p class="muted">Record SHA-256: <code>${esc(c.hash)}</code></p>` : ''}

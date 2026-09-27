@@ -50,23 +50,26 @@ check(s.entries.some((e) => e.kind === 'event' && e.event.type === 'symptom' && 
 send(doctor, { type: 'consentOpen' });
 await until(() => doctor.state.consent?.status === 'precheck', 60000);
 check(doctor.state.consent?.checkpoints.length >= 5, `consent has ${doctor.state.consent?.checkpoints.length} checkpoints`);
+check(doctor.state.entries.some((e) => e.kind === 'ai' && e.ai.from === 'system'), 'final check posted into the chat for both sides');
 send(doctor, { type: 'consentProceed', acknowledge: true });
-await until(() => patient.state.consent?.status === 'review');
-check(patient.state.consent?.status === 'review', 'patient reviewing checkpoints');
-const cps = patient.state.consent.checkpoints;
-send(patient, { type: 'consentAck', cp: cps[0].id, status: 'question' });
+await until(() => patient.state.consent?.status === 'quiz');
+check(patient.state.consent?.status === 'quiz' && patient.state.consent.quiz.length === 3, 'patient gets a 3-question comprehension check');
+const quiz = patient.state.consent.quiz;
+send(patient, { type: 'consentAnswer', q: quiz[0].id, choice: (quiz[0].answer + 1) % 3 });
 await until(() => doctor.events.some((e) => e.type === 'alert'));
-check(doctor.events.some((e) => e.type === 'alert'), 'doctor alerted about a checkpoint question');
-for (const cp of cps) { send(patient, { type: 'consentAck', cp: cp.id, status: 'understood' }); await sleep(80); }
+check(doctor.events.some((e) => e.type === 'alert'), 'a wrong answer alerts the doctor');
+check(patient.state.consent.status === 'quiz', 'a wrong answer does not unlock signing');
+for (const q of quiz) { send(patient, { type: 'consentAnswer', q: q.id, choice: q.answer }); await sleep(120); }
 await until(() => patient.state.consent?.status === 'signing');
-check(patient.state.consent?.status === 'signing', 'all checkpoints understood → signing');
+check(patient.state.consent?.status === 'signing', 'all three correct → signing');
+check(patient.state.entries.some((e) => e.event?.type === 'summary'), 'what is being agreed to appears in the chat');
 const px = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
 send(patient, { type: 'sign', dataUrl: px });
 send(doctor, { type: 'sign', dataUrl: px });
 await until(() => doctor.state.consent?.status === 'signed');
 check(doctor.state.consent?.status === 'signed' && /^[0-9a-f]{64}$/.test(doctor.state.consent.hash), 'consent signed with SHA-256 hash');
 const html = await (await fetch(`${base}/record/${room}`)).text();
-check(html.includes('Checkpoints confirmed') && html.includes(doctor.state.consent.hash), 'record page renders checkpoints + hash');
+check(html.includes('Comprehension check') && html.includes(doctor.state.consent.hash), 'record shows the quiz, the agreement and the hash');
 doctor.close(); patient.close();
 console.log(failures ? `\n${failures} check(s) failed` : '\nall checks passed');
 process.exit(failures ? 1 : 0);

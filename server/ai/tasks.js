@@ -33,9 +33,13 @@ const interpretSystem = (state) => {
   const D = langName(state.doctorLang), P = langName(state.patientLang);
   return `You are EyeSee's medical interpreter in a live clinical visit between a doctor who speaks ${D} and a patient whose language is ${P}. Each request is one new utterance plus recent context. Other people in the room may also be heard.
 
-Decide the direction from the LANGUAGE of the utterance, not from which device recorded it:
+${
+    state.doctorLang === state.patientLang
+      ? `Both speak ${D}. Decide the direction from the device: the doctor's phone → "toPatient"; the patient's headset → "toDoctor". There is no language barrier, so "translation" is the same utterance in ${D}, cleaned only of obvious speech-recognition errors and filler — never paraphrase. The value is in catching accents and explaining jargon.`
+      : `Decide the direction from the LANGUAGE of the utterance, not from which device recorded it:
 - Utterance in ${P} → direction "toDoctor": translate it into ${D} for the doctor.
-- Utterance in any other language (usually ${D}) → direction "toPatient": translate it into ${P} for the patient.
+- Utterance in any other language (usually ${D}) → direction "toPatient": translate it into ${P} for the patient.`
+  }
 
 1. translation — Faithful and complete. Preserve meaning, numbers, negations, doses, uncertainty and hedges exactly; never add advice, never omit, never soften risks. Natural spoken register. toPatient: keep the medical term the doctor used (written in ${P}) so the patient can recognise it later. toDoctor: keep sensory words precise and add the original sound-symbolic word in parentheses, e.g. "a throbbing (zuki-zuki) headache".
 
@@ -107,18 +111,28 @@ const CONSENT_SCHEMA = S.obj({
   checkpoints: S.arr(
     S.obj({
       category: S.enum(['diagnosis', 'procedure', 'benefits', 'risks', 'anesthesia', 'alternatives', 'noTreatment', 'recovery', 'rights']),
-      doctor: S.str('first-person statement in English, starting "I understand that"'),
+      doctor: S.str("first-person statement in the doctor's language (\"I understand that…\")"),
       patient: S.str('the same statement, natural, in the patient language'),
       evidence: S.arr(S.int(), 'the # numbers of the utterances this is grounded in'),
     }),
   ),
   omissions: S.arr(OMISSION()),
+  quiz: S.arr(
+    S.obj({
+      doctor: S.str("the question in the doctor's language"),
+      patient: S.str('the same question in the patient language'),
+      options: S.arr(S.obj({ doctor: S.str(), patient: S.str() }), 'exactly 3 options'),
+      answer: S.int('index (0–2) of the one correct option'),
+      why: S.obj({ doctor: S.str(), patient: S.str() }, 'one-sentence explanation of the correct answer'),
+    }),
+    'exactly 3 questions',
+  ),
 });
 
 function OMISSION() {
   return S.obj({
     severity: S.enum(['critical', 'recommended']),
-    doctor: S.str('what is missing, for the doctor, in English (imperative, ≤ 20 words)'),
+    doctor: S.str("what is missing, for the doctor, in the doctor's language (imperative, ≤ 20 words)"),
     patient: S.str('the same point in the patient language, gentle, ≤ 30 words'),
   });
 }
@@ -132,7 +146,9 @@ checkpoints — 5 to 8 statements the patient confirms one by one before signing
 
 omissions — the final check before consent: what a careful physician would still need to disclose or confirm for THIS procedure given what was (not) said: non-surgical alternatives, option of no treatment and its consequences, material risks with rough likelihood, anesthesia/sedation risks, who performs it, recovery and limitations, answers to questions the patient raised but that were never answered. severity "critical" for items whose absence commonly underlies inadequate-consent claims (alternatives, material risks, no-treatment option, unanswered patient questions); otherwise "recommended". Empty array if nothing important is missing.
 
-procedure — name of the procedure being consented to, in English and in the patient language.`,
+procedure — name of the procedure being consented to, in the doctor's language and in the patient language.
+
+quiz — exactly 3 multiple-choice questions that check the patient truly understood what was explained, answered only from the conversation: (1) what will be done, (2) the main risks, (3) the alternatives or the option to decline (if discussed; otherwise recovery). Each has exactly 3 short options in plain words: one correct, two clearly wrong for someone who understood (e.g. "there is no risk at all"). Vary the position of the correct option. No trick questions, no medical jargon a layperson wouldn't know.`,
     prompt: `Conversation so far (all phases):\n${formatTranscript(state)}`,
     schema: CONSENT_SCHEMA,
     effort: 'high',
@@ -145,9 +161,9 @@ procedure — name of the procedure being consented to, in English and in the pa
 const modelList = MODELS.map((m) => `${m.id} (${m.en})`).join('; ');
 
 const MEDIATOR_SCHEMA = S.obj({
-  questionForDoctor: S.str('the question as the doctor should read it, in English'),
+  questionForDoctor: S.str("the question as the doctor should read it, in the doctor's language"),
   questionForPatient: S.str('the question as the patient should read it, in the patient language'),
-  answerDoctor: S.str('answer for the doctor, English, ≤ 80 words'),
+  answerDoctor: S.str("answer for the doctor, in the doctor's language, ≤ 80 words"),
   answerPatient: S.str('the same answer for the patient, patient language, no jargon, ≤ 80 words'),
   showModel: S.nullable(
     S.obj({
@@ -172,7 +188,7 @@ You can:
 - Check what is missing. When asked things like "did I forget anything?" / 「言い忘れはある？」, compare the conversation with informed-consent requirements (diagnosis, procedure, benefits, risks with likelihood, alternatives incl. non-surgical and no treatment, anesthesia, recovery, the patient's unanswered questions) and list the gaps in omissions (else leave omissions empty). severity "critical" for gaps that commonly underlie inadequate-consent claims (alternatives incl. non-surgical, material risks, the option of no treatment, unanswered patient questions), otherwise "recommended".
 - Show a 3D model from the library when it helps: ${modelList}. Heart parts: lv, rv, la, ra, aorta, pulmonary, pulmonary-veins, vena-cava, rca, left-main, lad, lcx, stenosis. Lung parts: trachea, carina, bronchi, right-upper, right-middle, right-lower, left-upper, left-lower, diaphragm. Artery parts: wall, plaque, blood, wire, catheter, balloon, stent. Liver resection parts: right-lobe, left-lobe, tumour, resected, gallbladder, portal-vein, hepatic-artery, hepatic-veins, bile-duct, clamp, cut-line (steps 0 tumour, 1 clamp, 2 cut line, 3 removal, 4 regrowth). Gastrectomy parts: oesophagus, stomach, tumour, resected, duodenum, small-intestine, anastomosis, cut-line, food (steps 0 tumour, 1 separate, 2 remove, 3 reconnect, 4 eating after recovery). Artery steps: 0 narrowed, 1 wire & catheter, 2 balloon, 3 stent, 4 result.
 - Ask for an illustration (imagePrompt) only when a picture would genuinely help and no 3D model fits. The image must contain NO text or letters (the app adds captions); give a short imageCaption in both languages.
-- Use web search for current factual information when needed.
+- Search the web (Google Search) whenever the question is about facts that go beyond this conversation: drugs and their side effects, procedures, recovery times, statistics, guidelines, costs, insurance. Base the answer on what you find; the app shows the sources.
 - Change the patient's language: if the patient asks to switch language (e.g. "言語をスペイン語にして", "switch to Spanish", or simply asks in another language to read everything in it), set setPatientLanguage to that ISO code and confirm briefly in the NEW language in answerPatient. Otherwise null.
 Keep answers short and concrete.`,
     prompt: `Conversation so far:\n${formatTranscript(state, { last: 40 })}\n\nCurrent phase: ${state.mode}. Understanding score: ${state.understanding.score}/10.\n\nThe ${from.toUpperCase()} asks EyeSee AI:\n"""${question}"""`,
@@ -186,14 +202,14 @@ Keep answers short and concrete.`,
 // ---------------------------------------------------------------- "I don't understand"
 
 const HELP_SCHEMA = S.obj({
-  doctorSuggestion: S.str('a simpler way for the doctor to say it, English, ≤ 40 words'),
+  doctorSuggestion: S.str("a simpler way for the doctor to say it, in the doctor's language, ≤ 40 words"),
   patientExplanation: S.str('a plain explanation for the patient in the patient language, ≤ 60 words'),
 });
 
 export function helpUnderstand(state, entry) {
   return jsonCall({
     name: 'clarify',
-    system: `The patient (reading ${langName(state.patientLang)}) pressed "I don't understand" on something the doctor said. Help both sides: give the doctor a simpler way to say it (concrete, no jargon, everyday analogy if useful), and give the patient an immediate plain explanation they can read now. Stay strictly faithful to what the doctor said; add no new medical facts.`,
+    system: `The doctor speaks ${langName(state.doctorLang)}. The patient (reading ${langName(state.patientLang)}) pressed "I don't understand" on something the doctor said. Help both sides: give the doctor a simpler way to say it (concrete, no jargon, everyday analogy if useful), and give the patient an immediate plain explanation they can read now. Stay strictly faithful to what the doctor said; add no new medical facts.`,
     prompt: `Recent conversation:\n${formatTranscript(state, { last: 8 })}\n\nThe utterance the patient did not understand:\n${entry.orig.text}\n(shown to the patient as: ${entry.tr?.text || '—'})`,
     schema: HELP_SCHEMA,
     effort: 'low',

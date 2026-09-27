@@ -12,6 +12,7 @@ import { SymptomLayer, symptomLine } from '/shared/symptoms.js';
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const langName = (code) => LANGUAGES[code]?.name || code;
+const speechLocale = (code) => ({ en: 'en-US', ja: 'ja-JP', es: 'es-ES', zh: 'zh-CN', ko: 'ko-KR', vi: 'vi-VN', pt: 'pt-BR', tl: 'fil-PH', ar: 'ar-SA', hi: 'hi-IN', ru: 'ru-RU', fr: 'fr-FR' })[code] || 'en-US';
 
 const { room } = params();
 localStorage.setItem('eyesee.room', room);
@@ -232,6 +233,7 @@ function entryEl(e) {
     const nuance = (e.terms || []).filter((t) => t.audience === 'doctor');
     el.innerHTML = `<div class="bubble ${e.pending ? 'pending' : ''}" data-entry="${e.id}">${main}</div>
       ${me && read.plain ? `<div class="reads"><span>Patient reads</span>${esc(read.main)}</div>` : sub ? `<div class="sub">${esc(sub)}</div>` : e.pending && r.main ? '<div class="sub">Translating…</div>' : ''}
+      ${e.toAI ? '<div class="meta">To AI</div>' : ''}
       ${e.iSee ? `<div class="meta ok">${me ? 'Understood' : 'You understood'}</div>` : e.confused ? `<div class="meta q">${me ? 'Not understood' : 'You asked again'}</div>` : ''}
       ${e.error ? `<div class="meta q">${e.error === 'speech' ? 'Could not process audio' : 'Not translated'}</div>` : ''}
       ${e.note ? `<div class="foot">${esc(e.note)}</div>` : ''}
@@ -242,7 +244,7 @@ function entryEl(e) {
   if (e.kind === 'ai') {
     const a = e.ai;
     el.className = 'ai';
-    el.innerHTML = `<div class="ai-q"><span class="orb"></span>${a.from === 'doctor' ? 'You asked' : 'Patient asked'} · ${esc(a.question?.doctor)}</div>
+    el.innerHTML = `<div class="ai-q"><span class="orb"></span>${a.from === 'system' ? esc(a.question?.doctor) : a.replyTo ? (a.from === 'doctor' ? 'Answering you' : 'Answering the patient') : `${a.from === 'doctor' ? 'You asked' : 'Patient asked'} · ${esc(a.question?.doctor)}`}</div>
       ${a.pending ? '<div class="ai-a"><span class="typing"><i></i><i></i><i></i></span></div>' : `<div class="ai-a">${esc(a.answer?.doctor)}</div>`}
       ${a.omissions?.length ? `<ul>${a.omissions.map((o) => `<li class="${o.severity}">${esc(o.doctor)}</li>`).join('')}</ul>` : ''}
       ${a.image && a.image !== 'pending' ? `<img src="${esc(a.image)}" alt="">` : ''}
@@ -258,6 +260,11 @@ function entryEl(e) {
       <div class="grow"><b>${esc(ev.region?.label?.en || '')}</b><span>${p ? `${esc(p.en)} · ${esc(p.ja)}` : 'Choosing how it feels…'}</span></div>
       <div class="lv ${level(ev.intensity)}">${ev.intensity ?? '–'}</div>`;
     el.onclick = () => openSymptoms();
+    return el;
+  }
+  if (e.event?.type === 'summary') {
+    el.className = 'ai';
+    el.innerHTML = `<div class="ai-q">Agreeing to</div><ul>${(e.event.items || []).map((x) => `<li>${esc(x.doctor)}</li>`).join('')}</ul>`;
     return el;
   }
   el.className = 'caption';
@@ -386,7 +393,7 @@ const rec = new Recorder({
   gate: () => !S?.speaking?.patient,
 });
 let webSpeech = null;
-const speechFallback = () => (webSpeech ||= browserRecognizer('en-US', (text) => link.send({ type: 'text', text, source: 'webspeech' })));
+const speechFallback = () => (webSpeech ||= browserRecognizer(speechLocale(S?.doctorLang || 'en'), (text) => link.send({ type: 'text', text, source: 'webspeech' })));
 
 function setTalkLabel() {
   talk.classList.toggle('hands-free', pref.handsFree && !listening);
@@ -585,18 +592,20 @@ function openMore() {
     openSheet(
       'more',
       `<h2>Visit</h2>
-       <h3>Patient</h3>
+       <h3>Languages</h3>
        <div class="group">
-         <label class="cell"><span class="grow">Language</span><select id="langSel">${Object.entries(LANGUAGES)
-           .filter(([c]) => c !== S.doctorLang)
+         <label class="cell"><span class="grow">Headset<small>The patient</small></span><select id="langSel">${Object.entries(LANGUAGES)
            .map(([c, l]) => `<option value="${c}" ${c === S.patientLang ? 'selected' : ''}>${esc(l.name)}</option>`)
+           .join('')}</select></label>
+         <label class="cell"><span class="grow">Console<small>You, the doctor</small></span><select id="docLangSel">${Object.entries(LANGUAGES)
+           .map(([c, l]) => `<option value="${c}" ${c === S.doctorLang ? 'selected' : ''}>${esc(l.name)}</option>`)
            .join('')}</select></label>
          ${cell('Headset', { val: presence.patient ? 'Connected' : 'Not connected' })}
        </div>
        <h3>How the patient reads</h3>
        <div class="group">
          <label class="cell"><span class="grow">Plain explanations<small>Textbook-level wording for patients without medical background</small></span><input type="checkbox" class="switch" id="plainSw" ${S.reading?.plain ? 'checked' : ''}></label>
-         <label class="cell"><span class="grow">Read aloud in the headset<small>Your words, spoken in the patient's language</small></span><input type="checkbox" class="switch" id="voiceSw" ${S.reading?.voice ? 'checked' : ''}></label>
+         <label class="cell"><span class="grow">Read aloud in the headset<small>Your words, spoken in the patient's language</small></span><input type="checkbox" class="switch" id="voiceSw" ${S.reading?.voice !== false ? 'checked' : ''}></label>
          ${S.patientLang === 'ja' ? `<label class="cell"><span class="grow">Hiragana<small>Mostly kana, spaced like a first-grade textbook</small></span><input type="checkbox" class="switch" id="kanaSw" ${S.reading?.kana ? 'checked' : ''} ${S.reading?.plain ? '' : 'disabled'}></label>` : ''}
        </div>
        ${presence.patient ? '' : `<div class="group" style="margin-top:10px"><div class="qr"><img src="/api/qr?text=${encodeURIComponent(questUrl)}" alt=""><code>${esc(questUrl)}</code></div></div>`}
@@ -616,13 +625,17 @@ function openMore() {
          ${cell(S.demo.playing ? 'Pause' : 'Play All', { act: S.demo.playing ? 'demoStop' : 'demoPlay' })}
        </div>
        <button class="btn plain" data-close>Done</button>`,
+      draw,
     );
     bindMore();
   };
   draw();
 }
+let moreSig = '';
 function bindMore() {
+  moreSig = `${S.patientLang}|${S.doctorLang}|${JSON.stringify(S.reading)}|${presence.patient}`;
   $('#langSel').onchange = (e) => link.send({ type: 'patientLang', lang: e.target.value });
+  $('#docLangSel').onchange = (e) => link.send({ type: 'doctorLang', lang: e.target.value });
   const reading = () => ({ type: 'reading', plain: $('#plainSw').checked, kana: !!$('#kanaSw')?.checked, voice: $('#voiceSw').checked });
   $('#voiceSw').onchange = () => link.send(reading());
   $('#plainSw').onchange = () => {
@@ -662,6 +675,7 @@ function syncSheet() {
   consentSeen = c?.status || null;
   if (sheetKind === 'consent') drawConsent();
   else if (sheetKind === 'term' || sheetKind === 'symptoms') sheetRedraw?.();
+  else if (sheetKind === 'more' && moreSig !== `${S.patientLang}|${S.doctorLang}|${JSON.stringify(S.reading)}|${presence.patient}`) sheetRedraw?.();
 }
 
 function openConsent() {
@@ -688,9 +702,23 @@ function drawConsent(force) {
     const crit = c.omissions.filter((o) => o.severity === 'critical');
     html = `<h2>Final Check</h2><p class="lead">${esc(c.procedure?.doctor || '')}</p>
       ${c.omissions.length ? `<div class="group">${c.omissions.map((o) => `<div class="omit ${o.severity}"><i></i><span>${esc(o.doctor)}</span></div>`).join('')}</div>` : '<div class="group"><div class="omit"><span>Nothing important is missing.</span></div></div>'}
-      <h3>The patient will confirm</h3>${list}
-      <button class="btn primary" data-act="proceed">${crit.length ? 'Send Anyway' : 'Send to Patient'}</button>
+      ${c.quiz?.length ? `<h3>The patient will answer</h3><div class="group">${c.quiz.map((q, i) => `<div class="cp"><span class="st">${i + 1}</span><div>${esc(q.doctor)}<small>${esc(q.options[q.answer]?.doctor || '')}</small></div></div>`).join('')}</div>` : ''}
+      <h3>Then signs for</h3>${list}
+      <button class="btn primary" data-act="proceed">${crit.length ? 'Continue Anyway' : 'Start Check'}</button>
       <button class="btn plain" data-act="cancel">Keep Discussing</button>`;
+  } else if (c.status === 'quiz') {
+    const passed = c.quiz.filter((q) => q.passed).length;
+    html = `<h2>Comprehension Check</h2><p class="lead">${passed} of ${c.quiz.length} correct · the patient must get all right to sign</p>
+      <div class="group">${c.quiz
+        .map((q, i) => {
+          const last = q.tries[q.tries.length - 1];
+          const cls = q.passed ? 'understood' : last && !last.ok ? 'question' : i === c.qIndex ? 'current' : '';
+          const mark = q.passed ? icon.check(14) : last && !last.ok ? '!' : '';
+          const note = last && !last.ok ? `Chose “${esc(q.options[last.choice]?.doctor)}” — explain again` : q.passed ? esc(q.options[q.answer]?.doctor) : '';
+          return `<div class="cp ${cls}"><span class="st">${mark}</span><div>${esc(q.doctor)}${note ? `<small>${note}</small>` : ''}</div></div>`;
+        })
+        .join('')}</div>
+      <button class="btn plain" data-act="cancel">Keep Discussing</button><button class="btn plain" data-close>Hide</button>`;
   } else if (c.status === 'review') {
     const done = c.checkpoints.filter((x) => x.ack === 'understood').length;
     const q = c.checkpoints.filter((x) => x.ack === 'question').length;
@@ -771,7 +799,7 @@ function speakNew() {
     const text = readFor(e, S.doctorLang).main;
     if (pref.tts && text && Date.now() - Date.parse(e.ts) < 30_000 && 'speechSynthesis' in window) {
       const u = new SpeechSynthesisUtterance(text);
-      u.lang = 'en-US';
+      u.lang = speechLocale(S.doctorLang);
       speechSynthesis.speak(u);
     }
   }

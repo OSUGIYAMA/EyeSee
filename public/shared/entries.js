@@ -13,7 +13,7 @@ export function readFor(e, lang, { plain = false } = {}) {
     const literal = orig.lang === lang ? orig.text : tr?.lang === lang ? tr.text : '';
     return { main: e.plain.text, sub: literal, subLang: lang, pending: !!e.pending, translated: true, plain: true };
   }
-  if (orig.lang === lang) return { main: orig.text, sub: tr?.text || '', subLang: tr?.lang || null, pending: !!e.pending, translated: false };
+  if (orig.lang === lang) return { main: orig.text, sub: tr?.lang && tr.lang !== lang ? tr.text : '', subLang: tr?.lang && tr.lang !== lang ? tr.lang : null, pending: !!e.pending, translated: false };
   if (tr?.text && tr.lang === lang) return { main: tr.text, sub: orig.text, subLang: orig.lang, pending: !!e.pending, translated: true };
   // Translation missing (offline or failed): show what we have.
   return { main: tr?.text || orig.text, sub: tr?.text ? orig.text : '', subLang: tr?.text ? orig.lang : null, pending: !!e.pending, translated: false };
