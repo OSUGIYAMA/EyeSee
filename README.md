@@ -53,8 +53,8 @@ EyeSeeが作っているのは医療用VRではなく、ほかの領域へ広げ
 - In 9,500+ surgical malpractice cases, inadequate informed consent made an indemnity payment more likely. Not explaining non-surgical alternatives was a specific risk factor.
   9,500件超の手術関連の事案では、不十分なインフォームド・コンセントが賠償支払いにつながりやすく、特に手術以外の選択肢を説明しなかったことがリスク要因でした。
 
-That last finding is why EyeSee's understanding score cannot reach 8/10 until alternatives have been discussed. The demo shows the doctor asking the AI "Did I forget anything?" and the AI catching that gap.
-だからEyeSeeの理解度スコアは、代替案が説明されるまで8/10に届きません。デモでは、医師が「言い忘れはある？」とAIに聞き、AIがそれを指摘します。
+That last finding is why EyeSee's understanding score cannot reach 7/10 until alternatives have been discussed. The demo shows the doctor asking the AI "Did I forget anything?" and the AI catching that gap.
+だからEyeSeeの理解度スコアは、代替案が説明されるまで7/10に届きません。デモでは、医師が「言い忘れはある？」とAIに聞き、AIがそれを指摘します。
 
 ## What happens in a visit
 
@@ -68,12 +68,12 @@ That last finding is why EyeSee's understanding score cannot reach 8/10 until al
 | 3D | Rotate the model or tap a part: the headset mirrors it live. | Heart (with stenosis), lungs, coronary stent (PCI) in 5 steps, life-size body. |
 | I see | Sees "I see" / "I don't understand" on each utterance. After an "I don't understand", AI suggests a simpler way to say it. | Physical わかった (I see) / わからない (I don't understand) buttons. |
 | EyeSee AI | Hold the AI button and ask, e.g. "Did I forget anything?" | Hold the big AI button and ask. The answer is visible to both, in both languages. |
-| Consent | Understanding meter 0–10 (JEV). At **8** the consent step unlocks → AI final check → checkpoints → signatures. | Confirms each checkpoint (理解しました / 質問がある), then signs in the air with a finger. |
+| Consent | Understanding meter 0–10 (JEV), always on top. At **7** the consent step unlocks → AI final check → checkpoints → signatures. | Confirms each checkpoint (理解しました / 質問がある), then signs in the air with a finger. |
 | Record | Minutes + checkpoints + score trajectory + AI final check + signatures + SHA-256. | — |
 
 ### The understanding score (JEV)
 
-After every utterance during consent, [JEV](https://docs.typesafe.ai) (TypeSafe AI's System One model) answers typed questions about the conversation. Each call takes about 100 ms:
+After every utterance, [JEV](https://docs.typesafe.ai) (TypeSafe AI's System One model) answers typed questions about the conversation. Each call takes about 100 ms:
 - **score**: a 10-level rubric, from "nothing explained (even if the patient says yes)" to "exemplary".
 - **noul** (probability yes/no), one per consent element: diagnosis, procedure, benefits, risks, alternatives, no-treatment option, anesthesia, recovery, invitation to ask questions.
 - **choice**, for patient comprehension: none / *claimed* (only "yes / はい") / partial / demonstrated (teach-back).
@@ -84,10 +84,10 @@ The server then applies hard caps, so a bare "I agree" can't unlock consent:
 |---|---|
 | 0 | Nothing explained yet |
 | 3 | Procedure and risks not explained |
-| 5 | The patient only *claims* to understand |
-| 7 | A core element (e.g. **alternatives**) is missing, no teach-back yet, or an "I don't understand" or a worry is unresolved |
+| 4 | The patient only *claims* to understand |
+| 6 | A core element (e.g. **alternatives**) is missing, no teach-back yet, or an "I don't understand" or a worry is unresolved |
 
-Consent unlocks at **8/10**. Missing non-surgical alternatives is a known driver of inadequate-consent claims (CRICO/Candello). That's why the demo shows the doctor asking "Did I forget anything?" and the AI catching it.
+The score is shown from the start of the visit and updates after every utterance. There are no phases to switch: when it reaches **7/10**, the doctor can open the consent step. Missing non-surgical alternatives is a known driver of inadequate-consent claims (CRICO/Candello). That's why the demo shows the doctor asking "Did I forget anything?" and the AI catching it.
 
 ## Quick start
 
@@ -115,7 +115,7 @@ Desktop preview of the headset: `http://localhost:8080/quest?preview` (drag to l
 
 ### Demo visit (for pitches)
 
-On the phone, open the **⋯** menu → **Demo visit**. **Next line** or **Auto-play** runs a scripted visit: exertional chest pain → pain orbs & body map → angina → tests → heart model with stenosis → PCI explained with the stent animation → the patient presses "I don't understand" on "contrast dye" → teach-back → the doctor asks AI "Did I forget anything?" → alternatives → 8/10 → consent. With AI keys every line goes through the live pipeline; without keys it uses pre-written translations.
+On the phone, open the **⋯** menu → **Demo visit**. **Next line** or **Auto-play** runs a scripted visit: exertional chest pain → pain orbs & body map → angina → tests → heart model with stenosis → PCI explained with the stent animation → the patient presses "I don't understand" on "contrast dye" → teach-back → the doctor asks AI "Did I forget anything?" → alternatives → 7/10 → consent. With AI keys every line goes through the live pipeline; without keys it uses pre-written translations.
 
 ## AI stack
 

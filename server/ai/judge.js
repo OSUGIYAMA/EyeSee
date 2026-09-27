@@ -51,10 +51,10 @@ export function applyCaps(raw, elements, comprehension, concerns) {
   const rules = [
     [!touched, 0, 'nothing has been explained yet'],
     [!ok('procedure') || !ok('risks'), 3, 'the procedure and its risks must be explained'],
-    [comprehension === 'none' || comprehension === 'claimed', 5, 'the patient has not shown understanding'],
-    [!CORE.every(ok), 7, `not yet explained: ${CORE.filter((id) => !ok(id)).join(', ')}`],
-    [comprehension !== 'demonstrated', 7, 'no teach-back yet'],
-    [concerns > 0, 7, 'a patient concern is unresolved'],
+    [comprehension === 'none' || comprehension === 'claimed', 4, 'the patient has not shown understanding'],
+    [!CORE.every(ok), 6, `not yet explained: ${CORE.filter((id) => !ok(id)).join(', ')}`],
+    [comprehension !== 'demonstrated', 6, 'no teach-back yet'],
+    [concerns > 0, 6, 'a patient concern is unresolved'],
   ].filter(([hit]) => hit);
   const cap = Math.min(10, ...rules.map(([, c]) => c));
   const capReasons = rules.filter(([, c]) => c === cap).map(([, , why]) => why);

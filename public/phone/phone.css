@@ -44,7 +44,8 @@ svg { display: block; }
 #app { display: flex; flex-direction: column; height: 100dvh; max-width: 600px; margin: 0 auto; }
 
 /* ---------- top bar ---------- */
-.bar { display: flex; align-items: center; gap: 10px; padding: calc(env(safe-area-inset-top) + 8px) 16px 8px; }
+.bar { display: flex; align-items: flex-start; gap: 8px; padding: calc(env(safe-area-inset-top) + 8px) 12px 8px 16px; }
+.bar .icon { margin-top: 6px; }
 .segmented { flex: 1; display: grid; grid-template-columns: repeat(3, 1fr); background: var(--fill); border-radius: 9px; padding: 2px; }
 .segmented button { height: 30px; border-radius: 7px; font-size: 13px; font-weight: 500; color: var(--label); transition: background 0.2s; }
 .segmented button[aria-selected='true'] { background: var(--bg-2); font-weight: 600; box-shadow: 0 3px 8px rgba(0, 0, 0, 0.12), 0 3px 1px rgba(0, 0, 0, 0.04); }
@@ -55,7 +56,7 @@ svg { display: block; }
 .notice { margin: 0 16px 6px; font-size: 13px; color: var(--orange); text-align: center; }
 
 /* ---------- understanding ---------- */
-.meter { margin: 2px 16px 8px; padding: 12px 14px; background: var(--bg-2); border-radius: 12px; }
+.meter { flex: 1; min-width: 0; padding: 12px 14px; background: var(--bg-2); border-radius: 14px; }
 .meter-row { width: 100%; display: flex; align-items: center; gap: 12px; }
 .meter-label { font-size: 15px; font-weight: 600; }
 .track { position: relative; flex: 1; height: 6px; border-radius: 3px; background: var(--fill); }

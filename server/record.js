@@ -74,7 +74,7 @@ ${c?.signatures ? `<h2>Signatures</h2><div class="sig">${['patient', 'doctor'].m
 ${c?.hash ? `<p class="muted">Record SHA-256: <code>${esc(c.hash)}</code></p>` : ''}
 
 <h2>Understanding over time</h2>
-${sparkline(u.history, s.caps?.consentThreshold ?? 8)}
+${sparkline(u.history, s.caps?.consentThreshold ?? 7)}
 
 <h2>Minutes</h2>
 <table><tr><th>Time</th><th>Who</th><th>Original</th><th>Translation shown to the other person</th></tr>

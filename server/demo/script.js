@@ -34,9 +34,7 @@ export const DEMO_STEPS = [
     ],
   },
   { do: 'stage', stage: null },
-  { do: 'mode', mode: 'exam' },
   { speaker: 'doctor', text: "The ECG records your heart's electrical activity. It doesn't hurt at all.", tr: '心電図は、心臓の電気の動きを記録する検査です。まったく痛くありません。' },
-  { do: 'mode', mode: 'consent' },
   { do: 'model', id: 'heart', highlight: 'stenosis' },
   {
     speaker: 'doctor',

@@ -63,7 +63,7 @@ export const config = {
   jevUrl: env.JEV_API_URL || 'https://api.typesafe.ai/v1/systemone',
   jevKey: env.JEV_API_KEY || env.TYPESAFE_API_KEY || '',
   jevModel: env.JEV_MODEL || 'jev-latest',
-  consentThreshold: +(env.EYESEE_CONSENT_THRESHOLD || 8),
+  consentThreshold: +(env.EYESEE_CONSENT_THRESHOLD || 7),
 
   patientLang: env.EYESEE_PATIENT_LANG || 'ja',
   doctorLang: env.EYESEE_DOCTOR_LANG || 'en',

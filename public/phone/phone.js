@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { Link, params, fetchConfig } from '/shared/net.js';
 import { Recorder, browserRecognizer } from '/shared/recorder.js';
-import { MODES, MODELS, PAIN_TYPES, FEELINGS, CONSENT_ELEMENTS, LANGUAGES } from '/shared/catalog.js';
+import { MODELS, PAIN_TYPES, FEELINGS, CONSENT_ELEMENTS, LANGUAGES } from '/shared/catalog.js';
 import { readFor } from '/shared/entries.js';
 import { icon } from '/shared/icons.js';
 import { Viewer } from '/phone/viewer3d.js';
@@ -55,7 +55,6 @@ link.on('unlock', () => navigator.vibrate?.([60, 50, 60]));
 function render() {
   if (!S) return;
   renderNotice();
-  renderPhases();
   renderMeter();
   renderFeed();
   renderStage();
@@ -70,32 +69,18 @@ function renderNotice() {
   n.textContent = msg;
 }
 
-function renderPhases() {
-  const el = $('#phases');
-  if (!el.children.length) {
-    el.innerHTML = MODES.map((m) => `<button role="tab" data-mode="${m.id}">${m.tab?.en || m.en}</button>`).join('');
-    el.onclick = (e) => {
-      const b = e.target.closest('button');
-      if (b) link.send({ type: 'mode', mode: b.dataset.mode });
-    };
-  }
-  for (const b of el.children) b.setAttribute('aria-selected', String(b.dataset.mode === S.mode));
-}
-
-// ---------------------------------------------------------------- understanding (consent phase only)
+// ---------------------------------------------------------------- understanding (JEV), always on top
 
 function renderMeter() {
   const u = S.understanding;
   const thr = S.caps?.consentThreshold ?? 8;
   const box = $('#meter');
-  box.hidden = S.mode !== 'consent';
-  if (box.hidden) return;
   box.classList.toggle('ready', u.score >= thr);
   box.classList.toggle('updating', !!u.updating);
   $('#meterFill').style.width = `${u.score * 10}%`;
   $('#meterThr').style.left = `calc(${thr * 10}% - 1px)`;
   $('#meterScore').innerHTML = `<b>${u.score}</b>/10`;
-  $('#meterNext').textContent = u.nextStep || 'Explain the plan. The score updates as you talk.';
+  $('#meterNext').textContent = S.entries.some((e) => e.kind === 'speech') ? u.nextStep || '' : 'Builds as you explain the diagnosis and the plan.';
   const els = u.elements || {};
   $('#meterDetail').innerHTML =
     CONSENT_ELEMENTS.map((el) => `<div class="check ${els[el.id] || 'missing'}"><i></i>${esc(el.en)}</div>`).join('') +
@@ -122,6 +107,8 @@ const nodes = new Map();
 let follow = true;
 const feed = $('#feed');
 feed.addEventListener('scroll', () => (follow = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 90));
+// Opening a 3D card or the keyboard shrinks the conversation: stay pinned to the newest line.
+new ResizeObserver(() => follow && (feed.scrollTop = feed.scrollHeight)).observe(feed);
 
 function resetFeed() {
   nodes.clear();

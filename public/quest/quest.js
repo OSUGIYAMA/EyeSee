@@ -373,7 +373,7 @@ function convItems() {
       const ty = e.event.type;
       if (ty === 'confused' && e.help?.patientExplanation) items.push({ e, type: 'help' });
       else if (['pain', 'body', 'feeling', 'signature'].includes(ty)) items.push({ e, type: 'caption' });
-    } else if (e.kind === 'system' && ['mode', 'language', 'signed'].includes(e.event?.type)) items.push({ e, type: 'caption' });
+    } else if (e.kind === 'system' && ['language', 'signed'].includes(e.event?.type)) items.push({ e, type: 'caption' });
   }
   if (S.speaking?.doctor) items.push({ type: 'typing-doctor', e: { id: 'typing-doctor', v: 0 } });
   if (rec.speaking && !aiHolding) items.push({ type: 'typing-me', e: { id: 'typing-me', v: 0 } });
@@ -485,7 +485,8 @@ function layout(ctx, item, w) {
 function drawConversation() {
   const items = convItems();
   const u = S.understanding;
-  const top = S.mode === 'consent' ? 132 : 58;
+  const showMeter = u.score > 0 || !!S.consent;
+  const top = showMeter ? 132 : 58;
   const bottom = conv.H - 52;
   const w = conv.W - PAD * 2;
   const ctx = conv.ctx;
@@ -498,8 +499,8 @@ function drawConversation() {
   conv.draw((c, p) => {
     glass(c, 0, 0, p.W, p.H, 60);
     // Consent phase: how far shared understanding has come.
-    if (S.mode === 'consent') {
-      const thr = caps.consentThreshold ?? 8;
+    if (showMeter) {
+      const thr = caps.consentThreshold ?? 7;
       text(c, t('understanding'), PAD, 46, 24, C.text2, 600);
       const segW = 34, gap = 8, x0 = p.W - PAD - 10 * segW - 9 * gap;
       for (let i = 0; i < 10; i++) {
@@ -511,7 +512,7 @@ function drawConversation() {
       c.fillStyle = C.sep;
       c.fillRect(PAD, 104, p.W - PAD * 2, 2);
     }
-    if (!(link.connected && presence.doctor)) text(c, t('disconnected'), p.W / 2, S.mode === 'consent' ? 12 : 18, 20, C.orange, 600, 'center');
+    if (!(link.connected && presence.doctor)) text(c, t('disconnected'), p.W / 2, showMeter ? 12 : 18, 20, C.orange, 600, 'center');
 
     c.save();
     rr(c, 0, top - 8, p.W, bottom - top + 16, 0);

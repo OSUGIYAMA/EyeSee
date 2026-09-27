@@ -16,21 +16,19 @@
 <body>
 <div id="app">
   <header class="bar">
-    <div id="phases" class="segmented" role="tablist"></div>
+    <section id="meter" class="meter">
+      <button id="meterRow" class="meter-row" aria-expanded="false">
+        <span class="meter-label">Understanding</span>
+        <span class="track"><span id="meterFill" class="fill"></span><span id="meterThr" class="thr"></span></span>
+        <span id="meterScore" class="meter-score">0</span>
+      </button>
+      <p id="meterNext" class="meter-next"></p>
+      <div id="meterDetail" class="meter-detail" hidden></div>
+      <button id="consentBtn" class="btn-filled" hidden>Confirm Consent</button>
+    </section>
     <button id="more" class="icon" aria-label="More"></button>
   </header>
   <div id="notice" class="notice" hidden></div>
-
-  <section id="meter" class="meter" hidden>
-    <button id="meterRow" class="meter-row" aria-expanded="false">
-      <span class="meter-label">Understanding</span>
-      <span class="track"><span id="meterFill" class="fill"></span><span id="meterThr" class="thr"></span></span>
-      <span id="meterScore" class="meter-score">0</span>
-    </button>
-    <p id="meterNext" class="meter-next"></p>
-    <div id="meterDetail" class="meter-detail" hidden></div>
-    <button id="consentBtn" class="btn-filled" hidden>Confirm Consent</button>
-  </section>
 
   <main id="feed" class="feed" aria-live="polite"></main>
 

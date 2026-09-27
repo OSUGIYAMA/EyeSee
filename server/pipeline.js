@@ -228,7 +228,7 @@ const isEcho = (room, role, text) => !!findEcho(room, role, text);
 const recentTerms = (s) => s.entries.flatMap((e) => (e.terms || []).map((t) => t.term)).slice(-20).join(', ');
 
 function afterSpeech(room) {
-  if (room.state.mode === 'consent') scheduleJudge(room);
+  scheduleJudge(room);
 }
 
 // ---------------------------------------------------------------- understanding judge
@@ -251,7 +251,7 @@ async function runJudge(room) {
   try {
     const sessionId = room.state.sessionId;
     const r = await assess(room.state);
-    if (room.state.sessionId !== sessionId || room.state.mode !== 'consent') return;
+    if (room.state.sessionId !== sessionId) return;
     const before = u.score;
     Object.assign(u, r, { updating: false });
     u.history.push({ ts: new Date().toISOString(), score: r.score, source: r.source });
@@ -351,7 +351,7 @@ export function feeling(room, id) {
   room.event('feeling', { id }, { doctor: `Patient feels ${f.en.toLowerCase()}`, patient: `気持ち：${L(f, s.patientLang)}` }, 'patient');
   if (s.stage?.tool === 'feelings') s.stage.selected = [...new Set([...(s.stage.selected || []), id])];
   if (f.concern) room.emit({ type: 'alert', to: 'doctor', text: `Patient: ${f.en}` }, 'doctor');
-  if (s.mode === 'consent') scheduleJudge(room);
+  scheduleJudge(room);
 }
 
 // ---------------------------------------------------------------- I see / I don't understand
@@ -362,7 +362,7 @@ export function iSee(room, role, entryId) {
   if (target) room.updateEntry(target.id, { iSee: true, confused: false });
   const text = role === 'patient' ? { doctor: 'Patient: I see', patient: 'わかりました' } : { doctor: 'You: I see', patient: '医師：わかりました' };
   room.event('isee', { target: target?.id || null }, text, role);
-  if (room.state.mode === 'consent') scheduleJudge(room);
+  scheduleJudge(room);
 }
 
 /** "I don't understand" — flags the utterance, alerts the doctor and asks AI for a simpler explanation. */
@@ -377,7 +377,7 @@ export async function confused(room, role, entryId) {
     return;
   }
   const ev = room.event('confused', { target: target.id }, { doctor: `Patient didn't understand “${target.orig.text.slice(0, 90)}”`, patient: 'わからない' }, 'patient');
-  if (s.mode === 'consent') scheduleJudge(room);
+  scheduleJudge(room);
   let help;
   try {
     help = llmProvider() ? await helpUnderstand(s, target) : offlineHelp(s);
@@ -483,7 +483,7 @@ export async function askAI(room, role, question) {
     }
     room.updateEntry(entry.id, {});
   }
-  if (s.mode === 'consent') scheduleJudge(room);
+  scheduleJudge(room);
 }
 
 export function showModel(room, { id, highlight = null, step = null }) {
@@ -499,9 +499,10 @@ export async function openConsent(room, { force = false } = {}) {
   const s = room.state;
   if (s.consent && s.consent.status !== 'cancelled') return;
   if (s.understanding.score < config.consentThreshold && !force) {
-    return room.emit({ type: 'toast', level: 'info', text: { doctor: `Consent unlocks at ${config.consentThreshold}/10 shared understanding (now ${s.understanding.score}).`, patient: '' } }, 'doctor');
+    return room.emit({ type: 'toast', level: 'info', text: { doctor: `Consent unlocks at ${config.consentThreshold}/10 (now ${s.understanding.score}).`, patient: '' } }, 'doctor');
   }
   s.consent = { status: 'preparing', openedAt: new Date().toISOString(), scoreAtOpen: s.understanding.score, checkpoints: [], omissions: [], index: 0, signatures: {}, overrides: [] };
+  s.mode = 'consent';
   s.stage = null;
   room.changed();
   let pkg;
