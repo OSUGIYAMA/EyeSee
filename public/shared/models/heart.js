@@ -202,8 +202,8 @@ function tubeGeometry(curve, segs, radial, rFn, opts = {}) {
     const center = v++;
     for (let j = 0; j < radial; j++) {
       const o = base + j, n = base + ring + j;
-      if (end) idx.push(o, n, o + 1, o + 1, n, n + 1, n, center, n + 1);
-      else idx.push(o, o + 1, n, o + 1, n + 1, n, n, n + 1, center);
+      if (end) idx.push(o, o + 1, n, o + 1, n + 1, n, n, n + 1, center);
+      else idx.push(o, n, o + 1, o + 1, n, n + 1, n, center, n + 1);
     }
   };
   if (capStart) cap(false);
@@ -280,6 +280,49 @@ function makeHighlighter() {
       }
     },
   };
+}
+
+// Procedural micro-relief (object-space value noise → derivative bump mapping). Scale-independent:
+// `amp` is in object units, so the look doesn't change with display size. The clear-coat keeps
+// the unperturbed normal, which reads as a thin wet film over textured tissue.
+const BUMP_GLSL = `
+varying vec3 vObjPos;
+uniform float uBumpAmp;
+uniform vec3 uBumpFreq;
+float eyHash(vec3 p) { p = fract(p * 0.1031); p += dot(p, p.zyx + 31.32); return fract((p.x + p.y) * p.z); }
+float eyNoise(vec3 p) {
+  vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(mix(eyHash(i), eyHash(i + vec3(1, 0, 0)), f.x), mix(eyHash(i + vec3(0, 1, 0)), eyHash(i + vec3(1, 1, 0)), f.x), f.y),
+             mix(mix(eyHash(i + vec3(0, 0, 1)), eyHash(i + vec3(1, 0, 1)), f.x), mix(eyHash(i + vec3(0, 1, 1)), eyHash(i + vec3(1, 1, 1)), f.x), f.y), f.z);
+}
+vec3 eyBump(vec3 surfPos, vec3 n, float h, float fd) {
+  vec3 sx = dFdx(surfPos), sy = dFdy(surfPos);
+  float k = length(sx) / max(1e-7, length(dFdx(vObjPos)));
+  vec2 dH = vec2(dFdx(h), dFdy(h)) * k;
+  vec3 R1 = cross(sy, n), R2 = cross(n, sx);
+  float det = dot(sx, R1) * fd;
+  vec3 g = sign(det) * (dH.x * R1 + dH.y * R2);
+  return normalize(abs(det) * n - g);
+}`;
+function addMicroBump(mat, amp, freq) {
+  const prev = mat.onBeforeCompile;
+  mat.onBeforeCompile = (sh, r) => {
+    if (prev) prev(sh, r);
+    sh.uniforms.uBumpAmp = { value: amp };
+    sh.uniforms.uBumpFreq = { value: new THREE.Vector3(...freq) };
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vObjPos;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvObjPos = position;');
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\n' + BUMP_GLSL)
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+        { vec3 q = vObjPos * uBumpFreq;
+          float h = (eyNoise(q) * 0.65 + eyNoise(q * 2.7 + 5.3) * 0.35) * uBumpAmp;
+          normal = eyBump(-vViewPosition, normal, h, faceDirection); }`);
+  };
+  const prevKey = mat.customProgramCacheKey ? mat.customProgramCacheKey() : '';
+  mat.customProgramCacheKey = () => prevKey + '|eyesee-bump';
+  return mat;
 }
 
 // ─────────────────────────────── the model ───────────────────────────────
@@ -396,6 +439,9 @@ export function create() {
     plaque: vessel('#e9c35a', { roughness: 0.5, clearcoat: 0.6, sheen: 0.5, sheenColor: new THREE.Color('#fff4c8') }),
   };
   const partOfMat = { lv: 'lv', rv: 'rv', la: 'la', ra: 'ra', aorta: 'aorta', pulmonary: 'pulmonary', pveins: 'pulmonary-veins', cava: 'vena-cava', rca: 'rca', lm: 'left-main', lad: 'lad', lcx: 'lcx', plaque: 'stenosis' };
+  for (const k of ['lv', 'rv', 'la', 'ra']) addMicroBump(M[k], 0.05, [2.2, 2.2, 2.2]);
+  for (const k of ['aorta', 'pulmonary', 'pveins', 'cava']) addMicroBump(M[k], 0.018, [1.6, 1.6, 1.6]);
+  addMicroBump(M.plaque, 0.05, [6, 6, 6]);
   for (const k in M) hl.register(partOfMat[k], M[k]);
 
   const addMesh = (geo, matKey, parent) => {
@@ -458,7 +504,7 @@ export function create() {
   addMesh(branch(0.52, [[0.35, 1.05, -0.15], [0.95, 2.0, -0.2], [1.3, 2.45, -0.1]], 0.58, 0.52), 'aorta', vesselG);
 
   const ptCurve = cr([[0.9, 1.3, 1.15], [1.3, 2.5, 1.85], [1.7, 3.8, 1.1], [1.85, 4.6, -0.4], [1.85, 4.8, -0.9]]);
-  addMesh(tubeGeometry(ptCurve, 64, 26, (u) => 1.36 + 0.16 * bump(u, 0.3, 0.1), {}), 'pulmonary', vesselG);
+  addMesh(tubeGeometry(ptCurve, 64, 26, (u) => 1.36 + 0.16 * bump(u, 0.3, 0.1) + 0.45 * (1 - sstep(0, 0.2, u)), {}), 'pulmonary', vesselG);
   const lpa = cr([[1.9, 4.65, -0.7], [3.2, 4.9, -1.6], [4.5, 4.6, -2.5], [5.6, 4.1, -2.95]]);
   const rpa = cr([[1.8, 4.7, -0.8], [0.4, 4.75, -2.05], [-1.8, 4.65, -2.75], [-4.3, 4.2, -2.9]]);
   addMesh(tubeGeometry(lpa, 44, 20, (u) => lerp(1.02, 0.9, u), { capEnd: true, lumen: lumenBlue, wall: wallV }), 'pulmonary', vesselG);

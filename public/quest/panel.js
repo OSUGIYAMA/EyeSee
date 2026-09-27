@@ -195,13 +195,20 @@ export function button(panel, x, y, w, h, label, action, o = {}) {
 /** Small text sprite (labels under 3D objects). */
 export function labelMesh(lines, { w = 0.14, h = 0.05, ppm = 1600, bg = 'rgba(12,22,33,0.78)' } = {}) {
   const p = new Panel({ w, h, ppm, name: 'label' });
+  // Shrink a line's font until it fits the label width.
+  const fit = (ctx, str, size, weight) => {
+    font(ctx, size, weight);
+    const w = ctx.measureText(str).width;
+    return w > p.W * 0.92 ? size * ((p.W * 0.92) / w) : size;
+  };
   p.draw((ctx) => {
     rr(ctx, 0, 0, p.W, p.H, p.H * 0.3, bg);
     const [a, b] = lines;
     if (b) {
-      text(ctx, a, p.W / 2, p.H * 0.1, p.H * 0.4, C.ink, 800, 'center');
-      text(ctx, b, p.W / 2, p.H * 0.58, p.H * 0.24, C.muted, 500, 'center');
-    } else text(ctx, a, p.W / 2, p.H * 0.28, p.H * 0.44, C.ink, 700, 'center');
+      text(ctx, a, p.W / 2, p.H * 0.1, fit(ctx, a, p.H * 0.4, 800), C.ink, 800, 'center');
+      const sb = fit(ctx, b, p.H * 0.24, 500);
+      text(ctx, b, p.W / 2, p.H * 0.6 + (p.H * 0.24 - sb) / 2, sb, C.muted, 500, 'center');
+    } else text(ctx, a, p.W / 2, p.H * 0.28, fit(ctx, a, p.H * 0.44, 700), C.ink, 700, 'center');
   });
   return p;
 }

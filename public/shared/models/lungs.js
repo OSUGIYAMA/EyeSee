@@ -228,8 +228,8 @@ function tubeGeometry(curve, segs, radial, rFn, opts = {}) {
     const center = v++;
     for (let j = 0; j < radial; j++) {
       const o = base + j, n = base + ring + j;
-      if (end) idx.push(o, n, o + 1, o + 1, n, n + 1, n, center, n + 1);
-      else idx.push(o, o + 1, n, o + 1, n + 1, n, n, n + 1, center);
+      if (end) idx.push(o, o + 1, n, o + 1, n + 1, n, n, n + 1, center);
+      else idx.push(o, n, o + 1, o + 1, n, n + 1, n, center, n + 1);
     }
   };
   if (capStart) cap(false);
@@ -309,6 +309,49 @@ function makeHighlighter() {
 }
 
 
+// Procedural micro-relief (object-space value noise → derivative bump mapping). Scale-independent:
+// `amp` is in object units, so the look doesn't change with display size. The clear-coat keeps
+// the unperturbed normal, which reads as a thin wet film over textured tissue.
+const BUMP_GLSL = `
+varying vec3 vObjPos;
+uniform float uBumpAmp;
+uniform vec3 uBumpFreq;
+float eyHash(vec3 p) { p = fract(p * 0.1031); p += dot(p, p.zyx + 31.32); return fract((p.x + p.y) * p.z); }
+float eyNoise(vec3 p) {
+  vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(mix(eyHash(i), eyHash(i + vec3(1, 0, 0)), f.x), mix(eyHash(i + vec3(0, 1, 0)), eyHash(i + vec3(1, 1, 0)), f.x), f.y),
+             mix(mix(eyHash(i + vec3(0, 0, 1)), eyHash(i + vec3(1, 0, 1)), f.x), mix(eyHash(i + vec3(0, 1, 1)), eyHash(i + vec3(1, 1, 1)), f.x), f.y), f.z);
+}
+vec3 eyBump(vec3 surfPos, vec3 n, float h, float fd) {
+  vec3 sx = dFdx(surfPos), sy = dFdy(surfPos);
+  float k = length(sx) / max(1e-7, length(dFdx(vObjPos)));
+  vec2 dH = vec2(dFdx(h), dFdy(h)) * k;
+  vec3 R1 = cross(sy, n), R2 = cross(n, sx);
+  float det = dot(sx, R1) * fd;
+  vec3 g = sign(det) * (dH.x * R1 + dH.y * R2);
+  return normalize(abs(det) * n - g);
+}`;
+function addMicroBump(mat, amp, freq) {
+  const prev = mat.onBeforeCompile;
+  mat.onBeforeCompile = (sh, r) => {
+    if (prev) prev(sh, r);
+    sh.uniforms.uBumpAmp = { value: amp };
+    sh.uniforms.uBumpFreq = { value: new THREE.Vector3(...freq) };
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vObjPos;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvObjPos = position;');
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\n' + BUMP_GLSL)
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+        { vec3 q = vObjPos * uBumpFreq;
+          float h = (eyNoise(q) * 0.65 + eyNoise(q * 2.7 + 5.3) * 0.35) * uBumpAmp;
+          normal = eyBump(-vViewPosition, normal, h, faceDirection); }`);
+  };
+  const prevKey = mat.customProgramCacheKey ? mat.customProgramCacheKey() : '';
+  mat.customProgramCacheKey = () => prevKey + '|eyesee-bump';
+  return mat;
+}
+
 // Seeded PRNG so the bronchial tree is identical on every device.
 function makeRng(seed) {
   let s = seed >>> 0;
@@ -362,17 +405,17 @@ export function create() {
   const L = (x, y, z) => lungF(x, y, z, 1);
   // fissures (positive on the upper/anterior side)
   const nObl = new THREE.Vector3(0, 0.7, 0.72).normalize();
-  const obl = (x, y, z, y0) => (y - y0) * nObl.y + (z + 8.5) * nObl.z + 0.012 * (Math.abs(x) - 8) * (Math.abs(x) - 8);
+  const obl = (x, y, z, y0) => (y - y0) * nObl.y + (z + 8.5) * nObl.z + 0.012 * (Math.abs(x) - 8) * (Math.abs(x) - 8) - 0.012 * (y + 8) * (y + 8);
   const oblR = (x, y, z) => obl(x, y, z, -3.6);
   const oblL = (x, y, z) => obl(x, y, z, -3.0);
-  const hor = (x, y, z) => y + 8.4 - 0.08 * z - 0.05 * (x + 8);
+  const hor = (x, y, z) => y + 8.4 - 0.08 * z - 0.05 * (x + 8) + 0.018 * (z - 2) * (z - 2) + 0.012 * (x + 8) * (x + 8);
   const g = 0.16; // half-gap at each fissure
   const LOBES = {
-    'right-upper': (x, y, z) => smax(smax(R(x, y, z), g - oblR(x, y, z), 0.5), g - hor(x, y, z), 0.5),
-    'right-middle': (x, y, z) => smax(smax(R(x, y, z), g - oblR(x, y, z), 0.5), g + hor(x, y, z), 0.5),
-    'right-lower': (x, y, z) => smax(R(x, y, z), g + oblR(x, y, z), 0.5),
-    'left-upper': (x, y, z) => smax(L(x, y, z), g - oblL(x, y, z), 0.5),
-    'left-lower': (x, y, z) => smax(L(x, y, z), g + oblL(x, y, z), 0.5),
+    'right-upper': (x, y, z) => smax(smax(R(x, y, z), g - oblR(x, y, z), 0.85), g - hor(x, y, z), 0.85),
+    'right-middle': (x, y, z) => smax(smax(R(x, y, z), g - oblR(x, y, z), 0.85), g + hor(x, y, z), 0.85),
+    'right-lower': (x, y, z) => smax(R(x, y, z), g + oblR(x, y, z), 0.85),
+    'left-upper': (x, y, z) => smax(L(x, y, z), g - oblL(x, y, z), 0.85),
+    'left-lower': (x, y, z) => smax(L(x, y, z), g + oblL(x, y, z), 0.85),
   };
   // centroid of a lobe by coarse sampling
   const centroid = (F) => {
@@ -409,6 +452,10 @@ export function create() {
     bronchi: track(new THREE.MeshPhysicalMaterial({ color: '#f6ece2', emissive: '#3a2a26', roughness: 0.42, clearcoat: 0.5, clearcoatRoughness: 0.3, vertexColors: true, envMap: env, envMapIntensity: 0.5 })),
     diaphragm: track(new THREE.MeshPhysicalMaterial({ color: '#ffffff', roughness: 0.55, clearcoat: 0.4, clearcoatRoughness: 0.35, sheen: 0.3, sheenColor: new THREE.Color('#ffc0b0'), vertexColors: true, envMap: env, envMapIntensity: 0.5, side: THREE.DoubleSide })),
   };
+  for (const id in LOBES) addMicroBump(M[id], 0.07, [1.5, 1.5, 1.5]);
+  addMicroBump(M.diaphragm, 0.05, [1.2, 3.5, 1.2]);
+  addMicroBump(M.trachea, 0.02, [3, 3, 3]);
+  addMicroBump(M.bronchi, 0.015, [3, 3, 3]);
   for (const k in M) hl.register(k, M[k]);
   const addMesh = (geo, id, parent, centre) => {
     track(geo);
@@ -453,9 +500,10 @@ export function create() {
   const trParts = [tubeGeometry(trCurve, 24, 28, () => TR_R, { capStart: true, lumen: new THREE.Color('#6b3a3a'), wall: new THREE.Color('#f0e2d8') })];
   const ringArc = 1.62 * Math.PI;
   for (let y = TR_TOP - 0.35; y > 1.3; y -= 0.5) {
-    const tg = new THREE.TorusGeometry(TR_R + 0.04, 0.17, 6, 22, ringArc);
+    const tg = new THREE.TorusGeometry(TR_R + 0.01, 0.12, 6, 22, ringArc);
     tg.rotateZ(-Math.PI / 2 - (ringArc + TAU) / 2);
     tg.rotateX(Math.PI / 2);
+    tg.scale(1, 1.55, 1);
     const k = (TR_TOP - y) / (TR_TOP - 0.9);
     tg.translate(0, y, lerp(-0.6, -0.2, k));
     tg.deleteAttribute('uv');

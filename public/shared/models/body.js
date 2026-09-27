@@ -1,10 +1,12 @@
 // Life-size, gender-neutral body for "where does it hurt?".
 //
-// The figure is built procedurally from signed distance fields (SDF): smooth, blended
-// capsules / ellipsoids / round cones are polygonised with surface nets and the vertices
-// are projected onto the exact surface with SDF-gradient normals, so the skin is smooth
-// with no visible faceting. Hands, feet and head are meshed at a finer resolution and
-// meet the body at subtle mannequin-style joint lines (wrist, ankle, nape).
+// The figure is one signed distance field (SDF): smoothly blended ellipsoids / round cones,
+// polygonised with surface nets; vertices are projected onto the exact surface and use
+// SDF-gradient normals, so the skin is smooth with no faceting. Head, hands and feet are
+// meshed on finer grids that overlap the body grid slightly — both sample the same surface
+// with the same normals, so there is no visible seam.
+// Geometry is built once per page (~0.2 s on desktop) on the first create() and cached;
+// call preload() early to take that cost before the model is shown.
 //
 // Real scale in metres: ~1.70 m tall, feet on y = 0, facing +Z, centred on x = z = 0.
 // The patient's anatomical LEFT is at +X (viewer's right when facing the figure).
@@ -588,6 +590,7 @@ function build() {
     const fw = (x, y, z) => { const p = footToWorld([x, y, z]); return G(p[0], p[1], p[2]); };
     const c = polygonize(fw, [-0.07, -0.01, -0.08], [0.07, 0.16, 0.205], 0.007);
     const L = placeMesh(c, footToWorld, false), R = mirrorMesh(L);
+    for (const m of [L, R]) for (let i = 1; i < m.pos.length; i += 3) if (m.pos[i] < 0) m.pos[i] = 0; // soles exactly on y = 0
     const keep = (x, y) => y < ANKLE_Y + M;
     addSurf(L, keep, () => 'foot-left');
     addSurf(R, keep, () => 'foot-right');
@@ -682,6 +685,9 @@ function glowTexture() {
   t.needsUpdate = true; t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearFilter;
   return t;
 }
+
+/** Build (and cache) the body geometry ahead of time. Optional. */
+export function preload() { build(); }
 
 const MAX_RING_MARKERS = 8;
 const HL_R = 0.011; // highlight edge softness radius (m)
@@ -863,7 +869,9 @@ diffuseColor.rgb = mix(diffuseColor.rgb, uHlColor, hlW * 0.5);`)
     const haloMat = new THREE.SpriteMaterial({ map: haloTex, color: col, transparent: true, opacity: 0.75, depthWrite: false, blending: THREE.AdditiveBlending });
     const halo = new THREE.Sprite(haloMat);
     halo.scale.setScalar(0.07);
-    sphereMesh.raycast = () => {}; halo.raycast = () => {};
+    sphereMesh.raycast = () => {}; halo.raycast = () => {}; // markers never block pointing at the body
+    sphereMesh.userData.partId = halo.userData.partId = 'marker';
+    sphereMesh.userData.markerId = halo.userData.markerId = id;
     group.add(halo, sphereMesh);
     group.userData.markerId = id;
     object.add(group);
@@ -883,18 +891,18 @@ diffuseColor.rgb = mix(diffuseColor.rgb, uHlColor, hlW * 0.5);`)
 
   // ---- animation --------------------------------------------------------------------
   function update(dt, t) {
-    now = t;
-    uniforms.uTime.value = t;
+    now = t ?? now + (dt || 0);
+    uniforms.uTime.value = now;
     // breathing: ~4.6 s cycle, slightly longer exhale
-    const ph = (t / 4.6) % 1;
+    const ph = (now / 4.6) % 1;
     uniforms.uBreath.value = ph < 0.42 ? sstep(0, 0.42, ph) : 1 - sstep(0.42, 1, ph);
     const k = 1 - Math.exp(-(dt || 0.016) * 6);
     hlAmt += (hlTarget - hlAmt) * k;
     uniforms.uHlAmt.value = hlAmt;
     for (const m of markers) {
-      const s = 1 + 0.14 * Math.sin((t - m.born) * 5.5 + m.phase);
-      m.sphere.scale.setScalar(s);
-      m.halo.scale.setScalar(0.06 + 0.02 * (0.5 + 0.5 * Math.sin((t - m.born) * 5.5 + m.phase)));
+      const w = Math.sin((now - m.born) * 5.5 + m.phase);
+      m.sphere.scale.setScalar(1 + 0.14 * w);
+      m.halo.scale.setScalar(0.07 + 0.01 * w);
     }
   }
 

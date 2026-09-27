@@ -467,8 +467,9 @@ function renderWork() {
     if (mode === 'pain') {
       const pt = PAIN_TYPES.find((x) => x.id === st.type);
       if (!pt) {
-        title(T('どんな痛みですか？', 'What does the pain feel like?'), T('目の前の動くボールから、いちばん近いものにタッチしてください', 'Touch the floating orb that matches best'));
-        para(ctx, T('例：ずきずき・ちくちく・しめつけ…', 'e.g. throbbing, prickling, squeezing…'), 40, 150, W - 80, 26, C.muted);
+        // The orbs float just above this panel, so keep the text in its lower half.
+        text(ctx, T('どんな痛みですか？', 'What does the pain feel like?'), 40, 190, 36, C.ink, 800);
+        para(ctx, T('上の動くボールから、いちばん近いものにタッチしてください（ずきずき・ちくちく・しめつけ…）', 'Touch the floating orb above that matches best'), 40, 250, W - 80, 25, C.muted, 500, 1.4, 3);
         return;
       }
       title(T(`「${pt.ja}」— 痛みの強さは？`, `${pt.en} — how strong?`), T('0 = 痛くない　10 = がまんできない', '0 = no pain, 10 = worst imaginable'));
@@ -810,7 +811,7 @@ async function syncPainGrid(st) {
     const { createPainViz } = await import('/shared/painviz.js').catch(() => ({ createPainViz: null }));
     PAIN_TYPES.forEach((pt, i) => {
       const g = new THREE.Group();
-      g.position.set((i % 5 - 2) * 0.13, i < 5 ? 0.07 : -0.1, 0);
+      g.position.set((i % 5 - 2) * 0.145, i < 5 ? 0.07 : -0.1, 0);
       let viz = null;
       if (createPainViz) {
         viz = createPainViz(pt.anim);
@@ -819,7 +820,7 @@ async function syncPainGrid(st) {
       }
       const collider = new THREE.Mesh(new THREE.SphereGeometry(0.055, 16, 12), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }));
       g.add(collider);
-      const lab = labelMesh([pt.ja, pt.jaHint], { w: 0.125, h: 0.042 });
+      const lab = labelMesh([pt.ja, pt.jaHint], { w: 0.138, h: 0.046 });
       lab.mesh.position.y = -0.068;
       g.add(lab.mesh);
       painGrid.add(g);
@@ -841,7 +842,8 @@ async function syncPainGrid(st) {
     o.g.visible = show || chosen;
     o.viz?.setActive(chosen);
     // Once chosen, the orb moves above the hand panel while the patient rates intensity.
-    o.g.position.set(chosen && !show ? 0 : ((painOrbs.indexOf(o) % 5) - 2) * 0.13, chosen && !show ? 0.06 : painOrbs.indexOf(o) < 5 ? 0.07 : -0.1, 0);
+    const i = painOrbs.indexOf(o);
+    o.g.position.set(chosen && !show ? 0 : ((i % 5) - 2) * 0.145, chosen && !show ? -0.075 : i < 5 ? 0.07 : -0.1, 0);
   }
 }
 
@@ -961,6 +963,12 @@ document.getElementById('desk').onsubmit = (e) => {
   inp.value = '';
 };
 if (new URLSearchParams(location.search).has('preview')) document.getElementById('deskBtn').onclick();
+
+// Warm up heavy assets while the patient reads the intro (the body's first build is ~0.5 s on Quest).
+setTimeout(() => {
+  import('/shared/models/body.js').then((m) => m.preload?.()).catch(() => {});
+  import('/shared/painviz.js').catch(() => {});
+}, 1500);
 
 // Fonts: redraw everything once Noto Sans JP is ready (canvas text doesn't reflow on its own).
 let fontsReady = false;

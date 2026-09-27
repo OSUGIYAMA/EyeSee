@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>EyeSee pain qualities preview</title>
+<link rel="icon" href="data:,">
 <style>
   html,body{margin:0;height:100%;background:#0e1420;color:#dfe7f5;font:14px system-ui,sans-serif;overflow:hidden}
   body.light{background:#cfd6de;color:#1b2533}
@@ -90,12 +91,13 @@ function hover() {
 }
 
 if (q.get('t')) { const T = +q.get('t'); hover(); for (let s = 0; s < T; s += 1 / 30) for (const it of items) it.viz.update(1 / 30, s); }
-const clock = new THREE.Clock();
-const t0 = +(q.get('t') || 0);
+const t0 = +(q.get('t') || 0), start = performance.now();
+let last = start;
 renderer.setAnimationLoop(() => {
-  const dt = Math.min(clock.getDelta(), 0.05);
+  const now = performance.now(), dt = Math.min((now - last) / 1000, 0.05);
+  last = now;
   hover();
-  for (const it of items) it.viz.update(dt, t0 + clock.elapsedTime);
+  for (const it of items) it.viz.update(dt, t0 + (now - start) / 1000);
   renderer.render(scene, camera);
 });
 window.__viz = items.map((i) => i.viz);

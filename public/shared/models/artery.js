@@ -143,8 +143,8 @@ function tubeGeometry(curve, segs, radial, rFn, opts = {}) {
     const center = v++;
     for (let j = 0; j < radial; j++) {
       const o = base + j, n = base + ring + j;
-      if (end) idx.push(o, n, o + 1, o + 1, n, n + 1, n, center, n + 1);
-      else idx.push(o, o + 1, n, o + 1, n + 1, n, n, n + 1, center);
+      if (end) idx.push(o, o + 1, n, o + 1, n + 1, n, n, n + 1, center);
+      else idx.push(o, n, o + 1, o + 1, n, n + 1, n, center, n + 1);
     }
   };
   if (capStart) cap(false);
@@ -223,6 +223,49 @@ function makeHighlighter() {
   };
 }
 
+
+// Procedural micro-relief (object-space value noise → derivative bump mapping). Scale-independent:
+// `amp` is in object units, so the look doesn't change with display size. The clear-coat keeps
+// the unperturbed normal, which reads as a thin wet film over textured tissue.
+const BUMP_GLSL = `
+varying vec3 vObjPos;
+uniform float uBumpAmp;
+uniform vec3 uBumpFreq;
+float eyHash(vec3 p) { p = fract(p * 0.1031); p += dot(p, p.zyx + 31.32); return fract((p.x + p.y) * p.z); }
+float eyNoise(vec3 p) {
+  vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(mix(eyHash(i), eyHash(i + vec3(1, 0, 0)), f.x), mix(eyHash(i + vec3(0, 1, 0)), eyHash(i + vec3(1, 1, 0)), f.x), f.y),
+             mix(mix(eyHash(i + vec3(0, 0, 1)), eyHash(i + vec3(1, 0, 1)), f.x), mix(eyHash(i + vec3(0, 1, 1)), eyHash(i + vec3(1, 1, 1)), f.x), f.y), f.z);
+}
+vec3 eyBump(vec3 surfPos, vec3 n, float h, float fd) {
+  vec3 sx = dFdx(surfPos), sy = dFdy(surfPos);
+  float k = length(sx) / max(1e-7, length(dFdx(vObjPos)));
+  vec2 dH = vec2(dFdx(h), dFdy(h)) * k;
+  vec3 R1 = cross(sy, n), R2 = cross(n, sx);
+  float det = dot(sx, R1) * fd;
+  vec3 g = sign(det) * (dH.x * R1 + dH.y * R2);
+  return normalize(abs(det) * n - g);
+}`;
+function addMicroBump(mat, amp, freq) {
+  const prev = mat.onBeforeCompile;
+  mat.onBeforeCompile = (sh, r) => {
+    if (prev) prev(sh, r);
+    sh.uniforms.uBumpAmp = { value: amp };
+    sh.uniforms.uBumpFreq = { value: new THREE.Vector3(...freq) };
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vObjPos;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvObjPos = position;');
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\n' + BUMP_GLSL)
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+        { vec3 q = vObjPos * uBumpFreq;
+          float h = (eyNoise(q) * 0.65 + eyNoise(q * 2.7 + 5.3) * 0.35) * uBumpAmp;
+          normal = eyBump(-vViewPosition, normal, h, faceDirection); }`);
+  };
+  const prevKey = mat.customProgramCacheKey ? mat.customProgramCacheKey() : '';
+  mat.customProgramCacheKey = () => prevKey + '|eyesee-bump';
+  return mat;
+}
 
 // ─────────────────────────────── geometry helpers ───────────────────────────────
 // Point on the vessel: θ = 0 top (+y), π/2 front (+z, toward the viewer), π bottom, 3π/2 back.
@@ -418,6 +461,8 @@ export function create() {
     balloon: addClipX(phys({ color: '#86c6f0', roughness: 0.12, clearcoat: 1, clearcoatRoughness: 0.08, transparent: true, opacity: 0.58, depthWrite: false, envMapIntensity: 0.9 })),
     stent: addClipX(phys({ color: '#dfe5ec', metalness: 0.85, roughness: 0.24, envMapIntensity: 1.3 })),
   };
+  addMicroBump(M.wall, 0.02, [2.2, 5, 5]);
+  addMicroBump(M.plaque, 0.035, [5, 5, 5]);
   for (const k in M) hl.register(k, M[k]);
   const mesh = (geo, id, parent) => {
     track(geo);
@@ -705,11 +750,11 @@ export function create() {
   // ── apply the state to devices/plaque (only when it changes) ──
   const collapse = (o) => { o.visible = false; o.scale.setScalar(1e-4); o.position.set(0, 0, 0); };
   const expand = (o) => { o.visible = true; o.scale.setScalar(1); };
-  let lastT = -1, lastBal = '', lastStent = '', lastPlaque = '';
+  let lastT = -1, lastBal = NaN, lastStent = NaN, lastPlaque = NaN;
   const applyState = () => {
     if (S.T === lastT) return;
     lastT = S.T;
-    const kBal = S.rB + '|' + S.inflate, kStent = S.stentR + '|' + S.stentA + '|' + S.stentX, kPlq = S.push2 + '|' + S.push3;
+    const kBal = S.rB * 7.31 + S.inflate, kStent = S.stentR * 13.7 + S.stentA * 3.1 + S.stentX, kPlq = S.push2 * 5.3 + S.push3;
     // wire
     if (S.wireTip > CLIP + 0.02) { expand(wireG); wireG.position.x = S.wireTip; M.wire.userData.clipX.value = CLIP - S.wireTip; } else collapse(wireG);
     // catheter + balloon

@@ -37,8 +37,8 @@ function makeShared() {
     box: new THREE.BoxGeometry(1, 1, 1),
     weight: weightGeometry(),
     loop: new THREE.TorusGeometry(0.085, 0.024, 8, 28),
-    handle: new THREE.CylinderGeometry(0.028, 0.034, 1, 12),
-    head: new THREE.CylinderGeometry(0.075, 0.075, 0.27, 20),
+    handle: new THREE.CylinderGeometry(0.036, 0.044, 1, 12),
+    head: new THREE.CylinderGeometry(0.1, 0.1, 0.3, 24),
     drop: dropGeometry(),
   };
 }
@@ -52,7 +52,7 @@ function drillGeometry() {
   const segL = 48, segA = 28, L = 0.55, pos = [], nrmA = [], idx = [];
   for (let i = 0; i <= segL; i++) {
     const s = i / segL, y = s * L;
-    const R = s < 0.22 ? 0.085 * Math.sqrt(s / 0.22) : 0.085;
+    const R = s < 0.22 ? 0.105 * Math.sqrt(s / 0.22) : 0.105;
     for (let j = 0; j <= segA; j++) {
       const a = (j / segA) * Math.PI * 2;
       const flute = s < 0.8 ? 0.7 + 0.3 * Math.abs(Math.cos(a - s * 16)) : 1; // helical flutes, plain shank
@@ -161,7 +161,7 @@ void main() {
     col += uFx * step(0.9, h) * uFizz * (0.6 + 0.4 * wrap);
   }
   if (uFlicker > 0.0) {                                       // burn: raw, flickering heat
-    float h = vnoise(vP * 7.0 + vec3(0.0, -uTime * 2.2, uTime * 0.7));
+    float h = vnoise(vP * 5.0 + vec3(0.0, -uTime * 2.2, uTime * 0.7));
     col += uFx * smoothstep(0.45, 1.0, h) * uFlicker;
   }
   if (uShadow > 0.0) col *= 1.0 - uShadow * smoothstep(0.1, 0.95, q.y) * 0.55; // heavy: pressed-down shade
@@ -202,6 +202,24 @@ void main() {
   vec3 col = uColor * (0.32 + 0.78 * wrap) + uRim * fres + spec + uColor * uEmissive;
   gl_FragColor = vec4(col, uOpacity);${OUT}
 }`;
+const HALO_VERT = `
+uniform float uSize;
+varying vec2 vUv;
+void main() {
+  vec4 mv = modelViewMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+  mv.xy += position.xy * uSize * length(modelViewMatrix[0].xyz);
+  vUv = uv;
+  gl_Position = projectionMatrix * mv;
+}`;
+const HALO_FRAG = `
+uniform vec3 uColor;
+uniform float uOpacity, uSize;
+varying vec2 vUv;
+void main() {
+  float r = length(vUv - 0.5) * uSize;
+  float g = exp(-pow(max(r - 0.49, 0.0) / 0.16, 2.0)) * smoothstep(1.0, 0.8, r);
+  gl_FragColor = vec4(uColor, g * uOpacity);${OUT}
+}`;
 const AURA_FRAG = `
 uniform vec3 uColor;
 uniform float uOpacity, uPower;
@@ -238,7 +256,9 @@ void main() {
   gl_FragColor = vec4(vCol.rgb, clamp(a * vCol.a, 0.0, 1.0));${OUT}
 }`;
 const SHAPE_SOFT = 'a = exp(-dot(q, q) * 3.2) * smoothstep(1.0, 0.7, length(q));';
-const SHAPE_FLAME = 'vec2 f = vec2(q.x * (1.3 + q.y * 0.5), q.y); a = exp(-dot(f, f) * 2.6) * smoothstep(1.0, 0.6, length(q));';
+const SHAPE_FLAME = `float h = clamp(q.y * 0.5 + 0.5, 0.0, 1.0);
+  float w = mix(0.55, 0.1, h * h);
+  a = exp(-(q.x * q.x) / (w * w) * 1.5) * (1.0 - smoothstep(0.5, 1.0, h)) * smoothstep(0.0, 0.22, h);`;
 const SHAPE_STAR = `vec2 k = abs(q);
   a = exp(-dot(q, q) * 14.0) + (exp(-k.x * 22.0) * exp(-k.y * 3.2) + exp(-k.y * 22.0) * exp(-k.x * 3.2)) * 0.85;`;
 
@@ -297,6 +317,19 @@ export function createPainViz(anim) {
     root.add(mesh);
     return mesh;
   }
+  // soft glow disc behind the core (a camera-facing quad; the core hides its centre)
+  function halo(color, opacity = 0.5) {
+    const m = new THREE.ShaderMaterial({
+      uniforms: { uColor: { value: col3(color) }, uOpacity: { value: opacity }, uSize: { value: 2.0 } },
+      vertexShader: HALO_VERT, fragmentShader: HALO_FRAG, transparent: true, depthWrite: false,
+    });
+    materials.push(m);
+    const mesh = new THREE.Mesh(G.quad, m);
+    mesh.frustumCulled = false;
+    mesh.renderOrder = 1;
+    root.add(mesh);
+    return mesh;
+  }
   function particles(count, seedFn, body, shape, opts = {}) {
     const g = new THREE.InstancedBufferGeometry();
     g.index = G.quad.index;
@@ -352,23 +385,24 @@ export function createPainViz(anim) {
     case 'pulse': { // ずきずき — throbbing in heartbeat rhythm
       coreU.uFx.value.set(0xff3048);
       const shells = [0, 1].map(() => {
-        const m = aura(0xff4057, 0.9, 1.6, 1);
+        const m = aura(0xff6076, 1.0, 1.4, 1);
         m.material.uniforms.uOpacity.value = 0;
         return m;
       });
-      const halo = aura(0xff5a6a, 0.35, 2.4, 1.12);
+      const glow = halo(0xff5a6a, 0.6);
       const P = 1.0;
       tick = (t) => {
         const ph = (t / P) % 1, b = beat(ph);
         coreU.uScale.value.setScalar(1 + 0.1 * b);
         coreU.uGlow.value = 0.22 * b;
-        halo.material.uniforms.uOpacity.value = 0.25 + 0.35 * b;
-        shells.forEach((s, i) => {
+        glow.material.uniforms.uOpacity.value = 0.25 + 0.35 * b;
+        for (let i = 0; i < shells.length; i++) {
+          const s = shells[i];
           const age = ((t / P) + (i ? 0.79 : 0.94)) % 1; // launched on lub and dub
           const k = i ? 0.75 : 1;
           s.scale.setScalar(1.02 + age * 0.9);
-          s.material.uniforms.uOpacity.value = (1 - age) ** 2 * 1.1 * k;
-        });
+          s.material.uniforms.uOpacity.value = (1 - age) ** 1.6 * 1.6 * k;
+        }
       };
       break;
     }
@@ -391,7 +425,7 @@ export function createPainViz(anim) {
           size = 0.16 * k * (0.8 + 0.4 * uIntensity);
           col = vec4(1.0, 0.93, 0.95, k);
         }`, SHAPE_STAR);
-      const halo = aura(0xffd9e0, 0.3, 2.4, 1.1);
+      const glow = halo(0xffd9e0, 0.54);
       tick = (t) => {
         let sum = 0;
         for (let i = 0; i < N; i++) {
@@ -402,13 +436,13 @@ export function createPainViz(anim) {
           const tipR = 0.58 - 0.26 * k; // tip rests just off the skin and jabs deep into the core
           _v.copy(dirs[i]).multiplyScalar(tipR);
           _q.setFromUnitVectors(_up, dirs[i]);
-          _s.setScalar(1);
+          _s.set(1.7, 1, 1.7);
           mesh.setMatrixAt(i, _m.compose(_v, _q, _s));
           flash.material.uniforms.uState.value[i] = ph < 0.18 ? k : 0;
         }
         mesh.instanceMatrix.needsUpdate = true;
         coreU.uGlow.value = 0.05 + sum * 0.035;
-        halo.material.uniforms.uOpacity.value = 0.2 + sum * 0.05;
+        glow.material.uniforms.uOpacity.value = 0.2 + sum * 0.05;
       };
       break;
     }
@@ -432,7 +466,7 @@ export function createPainViz(anim) {
           size = 0.05 * (1.0 - life) * (0.7 + 0.6 * uIntensity);
           col = vec4(mix(vec3(1.0, 0.95, 0.75), vec3(1.0, 0.6, 0.2), life), 1.0 - life);
         }`, SHAPE_SOFT);
-      aura(0xffc070, 0.3, 2.4, 1.1);
+      halo(0xffc070, 0.54);
       tick = (t) => {
         const push = 0.5 + 0.5 * Math.sin(t * 1.6); // slowly bores in and backs off
         bit.rotation.y = -t * 14;
@@ -455,7 +489,7 @@ export function createPainViz(anim) {
       tilt.add(band);
       const arrows = instanced(G.cone, solid(0xb9a6ff, { rim: 0xffffff, emissive: 0.25 }), 6);
       tilt.add(arrows);
-      aura(0x9a7bff, 0.28, 2.4, 1.12);
+      halo(0x9a7bff, 0.50);
       tick = (t) => {
         const ph = (t / 2.4) % 1;
         // tighten (ease) → hold with a tremble → release
@@ -467,11 +501,11 @@ export function createPainViz(anim) {
         band.scale.set(rb, rb, 1 + 0.25 * sq);
         for (let i = 0; i < 6; i++) {
           const a = (i / 6) * Math.PI * 2 + 0.3;
-          const r = rb + 0.26 - 0.06 * sq;
+          const r = rb + 0.2 - 0.05 * sq;
           _v.set(Math.cos(a) * r, 0, Math.sin(a) * r);
           _v2.set(-Math.cos(a), 0, -Math.sin(a));
           _q.setFromUnitVectors(_up, _v2);
-          _s.set(0.055, 0.13, 0.055).multiplyScalar(0.8 + 0.4 * sq);
+          _s.set(0.085, 0.17, 0.085).multiplyScalar(0.8 + 0.4 * sq);
           arrows.setMatrixAt(i, _m.compose(_v, _q, _s));
         }
         arrows.instanceMatrix.needsUpdate = true;
@@ -480,8 +514,8 @@ export function createPainViz(anim) {
     }
     case 'burn': { // ひりひり — flickering flames on raw skin
       coreU.uColor.value.set(0xff8a5c); coreU.uDeep.value.set(0xa8281f); coreU.uRim.value.set(0xffd08a);
-      coreU.uFx.value.set(0xffc34d); coreU.uFlicker.value = 0.55;
-      const N = 70;
+      coreU.uFx.value.set(0xffc34d); coreU.uFlicker.value = 0.35;
+      const N = 64;
       particles(N, () => {
         // spawn on the upper 2/3 of the core
         const y = -0.35 + rnd() * 1.35, a = rnd() * Math.PI * 2;
@@ -492,17 +526,17 @@ export function createPainViz(anim) {
           float y0 = s.y, r0 = sqrt(max(1.0 - y0 * y0, 0.0));
           vec3 base = vec3(cos(s.x) * r0, y0, sin(s.x) * r0) * 0.5;
           vec3 out0 = normalize(base);
-          c = base + out0 * 0.04 + vec3(0.0, life * (0.34 + 0.18 * s.z), 0.0);
+          c = base + out0 * 0.06 + vec3(0.0, 0.04 + life * (0.26 + 0.12 * s.z), 0.0);
           c.x += sin(t * 7.0 + s.x * 5.0) * 0.03 * life;
-          size = (0.2 + 0.1 * s.z) * (1.0 - life * 0.75) * (0.75 + 0.35 * uIntensity);
-          vec3 hot = vec3(1.0, 0.95, 0.6), mid = vec3(1.0, 0.55, 0.12), cool = vec3(0.85, 0.12, 0.08);
-          col.rgb = life < 0.35 ? mix(hot, mid, life / 0.35) : mix(mid, cool, (life - 0.35) / 0.65);
-          col.a = smoothstep(0.0, 0.12, life) * (1.0 - life) * 0.95;
+          size = (0.24 + 0.12 * s.z) * (1.0 - life * 0.6) * (0.75 + 0.35 * uIntensity);
+          vec3 hot = vec3(1.0, 0.92, 0.5), mid = vec3(1.0, 0.52, 0.06), cool = vec3(0.92, 0.16, 0.04);
+          col.rgb = life < 0.3 ? mix(hot, mid, life / 0.3) : mix(mid, cool, (life - 0.3) / 0.7);
+          col.a = smoothstep(0.0, 0.1, life) * (1.0 - life * life);
         }`, SHAPE_FLAME);
-      aura(0xff7a2e, 0.5, 2.0, 1.12);
+      halo(0xff7a2e, 0.80);
       tick = (t) => {
         coreU.uGlow.value = 0.1 + 0.06 * Math.sin(t * 13) * Math.sin(t * 7.3);
-        coreU.uFlicker.value = 0.45 + 0.2 * act;
+        coreU.uFlicker.value = 0.3 + 0.2 * act;
       };
       break;
     }
@@ -520,7 +554,7 @@ export function createPainViz(anim) {
       const next = new Float32Array(BOLTS), on = new Uint8Array(BOLTS);
       const dir = new THREE.Vector3(), side1 = new THREE.Vector3(), side2 = new THREE.Vector3();
       const zero = new THREE.Matrix4().makeScale(0, 0, 0);
-      const halo = aura(0x6fe3ff, 0.4, 2.0, 1.12);
+      const glow = halo(0x6fe3ff, 0.72);
       const regen = (b) => {
         dir.set(rnd() * 2 - 1, rnd() * 2 - 1, rnd() * 1.6 - 0.4).normalize();
         side1.set(0, 1, 0).cross(dir); if (side1.lengthSq() < 1e-4) side1.set(1, 0, 0); side1.normalize();
@@ -549,7 +583,7 @@ export function createPainViz(anim) {
         if (changed) boltMesh.instanceMatrix.needsUpdate = true;
         const flick = lit / BOLTS;
         coreU.uGlow.value = 0.05 + 0.28 * flick;
-        halo.material.uniforms.uOpacity.value = 0.2 + 0.5 * flick;
+        glow.material.uniforms.uOpacity.value = 0.2 + 0.5 * flick;
       };
       break;
     }
@@ -571,7 +605,7 @@ export function createPainViz(anim) {
           size = 0.12 * (0.6 + s.y);
           col = vec4(0.35, 0.37, 0.45, p * (1.0 - life) * 0.55);
         }`, SHAPE_SOFT);
-      aura(0x5b5f7a, 0.3, 2.2, 1.1);
+      halo(0x5b5f7a, 0.54);
       tick = (t) => {
         const ph = (t / 3.2) % 1;
         // slow press (ease) → long hold → slight lift
@@ -591,14 +625,14 @@ export function createPainViz(anim) {
     case 'pound': { // がんがん — a hammer striking with a shockwave
       coreU.uFx.value.set(0xffe9a8);
       const pivot = new THREE.Group();
-      pivot.position.set(0.56, 0.6, 0.12);
+      pivot.position.set(0.5, 0.6, 0.1);
       root.add(pivot);
       const handle = new THREE.Mesh(G.handle, solid(0xa0714a, { rim: 0xffd7b0, spec: 0.2 }));
-      handle.rotation.z = Math.PI / 2; handle.scale.y = 0.44; handle.position.x = -0.22;
+      handle.rotation.z = Math.PI / 2; handle.scale.y = 0.4; handle.position.x = -0.2;
       const head = new THREE.Mesh(G.head, solid(0x8d97a8, { rim: 0xffffff, spec: 1.0 }));
-      head.position.x = -0.44;
+      head.position.x = -0.4;
       pivot.add(handle, head);
-      const impactDir = new THREE.Vector3(0.12, 0.47, 0.12).normalize();
+      const impactDir = new THREE.Vector3(0.1, 0.47, 0.1).normalize();
       coreU.uDentDir.value.copy(impactDir);
       const shock = [0, 1].map(() => {
         const m = new THREE.Mesh(G.ring, solid(0xfff1c2, { emissive: 0.9, opacity: 0.9, depthWrite: false }));
@@ -613,14 +647,14 @@ export function createPainViz(anim) {
           size = 0.75 * k;
           col = vec4(1.0, 0.96, 0.8, k);
         }`, SHAPE_STAR);
-      const halo = aura(0xffe08a, 0.3, 2.2, 1.12);
+      const glow = halo(0xffe08a, 0.54);
       const P = 1.15;
       tick = (t) => {
         const ph = (t / P) % 1;
         // wind-up (slow) → strike (fast) → rebound
         let ang;
-        if (ph < 0.6) ang = 0.8 * sstep(0, 0.6, ph);
-        else if (ph < 0.7) ang = 0.8 * (1 - ((ph - 0.6) / 0.1) ** 2);
+        if (ph < 0.6) ang = 0.7 * sstep(0, 0.6, ph);
+        else if (ph < 0.7) ang = 0.7 * (1 - ((ph - 0.6) / 0.1) ** 2);
         else ang = 0.12 * Math.sin(((ph - 0.7) / 0.3) * Math.PI) * (1 - (ph - 0.7) / 0.3);
         pivot.rotation.z = -ang;
         const since = ph >= 0.7 ? (ph - 0.7) * P : 99;
@@ -628,22 +662,23 @@ export function createPainViz(anim) {
         coreU.uDent.value = 1.3 * hit;
         coreU.uScale.value.set(1 + 0.08 * hit, 1 - 0.12 * hit, 1 + 0.08 * hit);
         coreU.uGlow.value = 0.28 * hit;
-        halo.material.uniforms.uOpacity.value = 0.2 + 0.6 * hit;
+        glow.material.uniforms.uOpacity.value = 0.2 + 0.6 * hit;
         flash.material.uniforms.uState.value[0] = hit;
-        shock.forEach((m, i) => {
+        for (let i = 0; i < shock.length; i++) {
+          const m = shock[i];
           const age = Math.min(1, Math.max(0, since - i * 0.08) / 0.55);
           const r = 0.5 + age * 0.45;
           m.position.set(0, 0.05 - age * 0.05, 0);
           m.rotation.set(Math.PI / 2 - 0.35, 0, 0);
           m.scale.set(r, r, r * (1 + 2 * (1 - age)));
           m.material.uniforms.uOpacity.value = since > 50 ? 0 : (1 - age) ** 1.5 * 0.95;
-        });
+        }
       };
       break;
     }
     case 'nag': { // しくしく — dim, slow, lingering waves
       coreU.uColor.value.set(0xc99aa8); coreU.uDeep.value.set(0x5d3552); coreU.uRim.value.set(0xb9c4ec); coreU.uFx.value.set(0x8ea2e0);
-      coreU.uWaves.value = 1; coreU.uWobble.value = 1;
+      coreU.uWaves.value = 1; coreU.uWobble.value = 0.45;
       const rings = [0, 1, 2].map(() => {
         const m = new THREE.Mesh(G.ring, solid(0x9fb1ea, { emissive: 0.4, opacity: 0.6, depthWrite: false }));
         m.rotation.x = Math.PI / 2 - 0.3;
@@ -653,18 +688,19 @@ export function createPainViz(anim) {
       });
       const drop = new THREE.Mesh(G.drop, solid(0xa9bcf2, { rim: 0xffffff, spec: 0.9, opacity: 0.85, emissive: 0.15 }));
       root.add(drop);
-      aura(0x8ea2e0, 0.3, 2.4, 1.1);
+      halo(0x8ea2e0, 0.54);
       tick = (t) => {
         const slow = 0.5 + 0.5 * Math.sin(t * 1.3);
         coreU.uGlow.value = 0.04 * slow;
         coreU.uIntensity.value = (0.42 + 0.3 * act) * (0.85 + 0.15 * slow);
-        rings.forEach((m, i) => {
+        for (let i = 0; i < rings.length; i++) {
+          const m = rings[i];
           const age = ((t / 5.2) + i / 3) % 1;
           const r = 0.52 + age * 0.42;
           m.scale.set(r, r, 1);
           m.position.y = 0.04 - age * 0.1;
           m.material.uniforms.uOpacity.value = Math.sin(age * Math.PI) * 0.6;
-        });
+        }
         // a slow drip forms under the orb and falls
         const dp = (t / 3.6) % 1;
         const grow = sstep(0, 0.55, dp), fall = dp > 0.6 ? (dp - 0.6) / 0.4 : 0;
@@ -689,7 +725,7 @@ export function createPainViz(anim) {
           size = (0.07 + 0.11 * fract(s.w * 3.1)) * tw * (0.8 + 0.4 * uIntensity);
           col = vec4(mix(vec3(1.0, 0.86, 0.35), vec3(1.0, 1.0, 0.92), fract(s.w * 5.3)), tw);
         }`, SHAPE_STAR);
-      aura(0xffe27a, 0.28, 2.3, 1.1);
+      halo(0xffe27a, 0.50);
       tick = (t) => {
         coreU.uGlow.value = 0.05 + 0.04 * Math.sin(t * 23) * Math.sin(t * 17);
         coreU.uFizz.value = 0.45 + 0.35 * act;
@@ -708,8 +744,8 @@ export function createPainViz(anim) {
     const inten = 0.62 + 0.38 * act;
     coreU.uTime.value = time;
     if (anim !== 'heavy' && anim !== 'nag') coreU.uIntensity.value = inten;
-    for (const m of materials) {
-      const u = m.uniforms;
+    for (let i = 0; i < materials.length; i++) {
+      const m = materials[i], u = m.uniforms;
       if (u.uTime && m !== coreMat) u.uTime.value = time;
       if (u.uIntensity && m !== coreMat && anim !== 'drill') u.uIntensity.value = inten;
     }
