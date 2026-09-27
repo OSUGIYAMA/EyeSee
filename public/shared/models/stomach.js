@@ -214,7 +214,7 @@ function makeHighlighter() {
           const mat = e.mats[m], h = mat.userData.hl;
           mat.color.copy(h.color).multiplyScalar(dm);
           mat.emissive.copy(h.emissive).lerp(h.glow, gl);
-          if (mat.transparent) mat.opacity = h.opacity * h.fade * (1 - 0.3 * e.dim);
+          if (mat.transparent) mat.opacity = h.opacity * h.fade; // dimming is by colour only (these parts are solid)
         }
       }
     },
@@ -294,7 +294,7 @@ function addSeeThrough(mat, uniforms) {
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', '#include <common>\nuniform float uSee;')
       .replace('#include <opaque_fragment>', `{ float nv = abs(dot(normalize(normal), normalize(vViewPosition)));
-          diffuseColor.a *= mix(1.0, 0.16 + 0.84 * pow(1.0 - nv, 1.7), uSee); }
+          diffuseColor.a *= mix(1.0, 0.26 + 0.74 * pow(1.0 - nv, 1.6), uSee); }
         #include <opaque_fragment>`);
   };
   const prevKey = mat.customProgramCacheKey ? mat.customProgramCacheKey() : '';
@@ -385,7 +385,8 @@ export function create() {
   { let bd = Infinity; for (let i = rowOfCtrl(2); i < rowOfCtrl(4); i++) { const d = Math.abs(G[i].y - 2.7); if (d < bd) { bd = d; iC1 = i; } } }
   const iC2 = rowOfCtrl(9) + Math.round(1.5 / ds);
   const iDJ = rowOfCtrl(nS + nD - 1);
-  const iM = rowOfCtrl(2) - 2;     // the remnant bends below here when it is joined
+  let iM = rowOfCtrl(2);           // the remnant bends below here (under the cardia) when it is joined
+  while (G[iM].y > 5.3) iM++;
   const iN = rowOfCtrl(nS + 2);    // the duodenum stays put beyond here
   const tangents = (P, i, n, out) => {
     const a = P[Math.max(0, i - 1)], b = P[Math.min(n - 1, i + 1)];
@@ -394,29 +395,29 @@ export function create() {
   const T0 = G.map((_, i) => tangents(G, i, NR, V(0, 0, 0)));
 
   // ── post-operative (Billroth I) layout: remnant curves down to meet the duodenum at J ──
-  const J = V(0.4, 0.2, 0.7);
+  const J = V(0.7, 0.1, 0.7);
   const RJ = 1.46;
   const P1 = G.map((p) => p.clone());
   const T1 = T0.map((t) => t.clone());
   const A1 = Float64Array.from(A0), B1 = Float64Array.from(B0);
   {
-    const qa = new THREE.CatmullRomCurve3([G[iM - 8], G[iM], V(6.0, 3.6, 0.7), V(4.0, 1.1, 0.9), J, V(-1.6, 0.25, 0.35)], false, 'centripetal');
+    const qa = new THREE.CatmullRomCurve3([G[iM - 8], G[iM], V(6.4, 3.0, 0.6), V(4.4, 0.8, 0.9), J, V(-1.3, 0.15, 0.35)], false, 'centripetal');
     const dense = qa.getSpacedPoints(1500);
     let k0 = 0, k1 = 0, bd0 = Infinity, bd1 = Infinity;
     dense.forEach((p, k) => { const d0 = p.distanceToSquared(G[iM]), d1 = p.distanceToSquared(J); if (d0 < bd0) { bd0 = d0; k0 = k; } if (d1 < bd1) { bd1 = d1; k1 = k; } });
     const ra = resample(dense.slice(k0, k1 + 1), iC1 - iM + 1);
     for (let i = iM; i <= iC1; i++) {
-      P1[i].copy(ra[i - iM]);
+      P1[i].copy(G[i]).lerp(ra[i - iM], sstep(0, 9, i - iM)); // ease out of the unchanged fundus
       const f = (i - iM) / (iC1 - iM);
-      A1[i] = lerp(A0[i], RJ, sstep(0.45, 1, f)); B1[i] = lerp(B0[i], RJ, sstep(0.45, 1, f));
+      A1[i] = lerp(A0[i], RJ, sstep(0.3, 1, f)); B1[i] = lerp(B0[i], RJ, sstep(0.3, 1, f));
     }
-    const qd = new THREE.CatmullRomCurve3([V(3.2, 0.4, 0.9), J, V(-2.4, 0.2, 0.2), V(-5.2, 0.0, -0.9), G[iN], G[iN + 8]], false, 'centripetal');
+    const qd = new THREE.CatmullRomCurve3([V(3.4, 0.4, 0.9), J, V(-2.2, 0.15, 0.2), V(-5.1, 0.0, -0.9), G[iN], G[iN + 8]], false, 'centripetal');
     const dd = qd.getSpacedPoints(1500);
     let m0 = 0, m1 = 0; bd0 = Infinity; bd1 = Infinity;
     dd.forEach((p, k) => { const d0 = p.distanceToSquared(J), d1 = p.distanceToSquared(G[iN]); if (d0 < bd0) { bd0 = d0; m0 = k; } if (d1 < bd1) { bd1 = d1; m1 = k; } });
     const rd = resample(dd.slice(m0, m1 + 1), iN - iC2 + 1);
     for (let i = iC2; i <= iN; i++) {
-      P1[i].copy(rd[i - iC2]);
+      P1[i].copy(G[i]).lerp(rd[i - iC2], sstep(0, 9, iN - i)); // ease back into the unchanged duodenum
       const f = (i - iC2) / (iN - iC2);
       A1[i] = lerp(RJ, A0[i], sstep(0, 0.4, f)); B1[i] = lerp(RJ, B0[i], sstep(0, 0.4, f));
     }
@@ -438,16 +439,16 @@ export function create() {
     sheen: 0.35, sheenRoughness: 0.5, sheenColor: new THREE.Color('#ffc2b4'),
     vertexColors: true, envMap: env, envMapIntensity: 0.55, ...extra,
   }));
-  const metal = (extra = {}) => track(new THREE.MeshPhysicalMaterial({ color: '#e6ebf0', metalness: 0.7, roughness: 0.3, envMap: env, envMapIntensity: 1.4, ...extra }));
+  const metal = (extra = {}) => track(new THREE.MeshPhysicalMaterial({ color: '#eef2f6', metalness: 0.55, roughness: 0.28, envMap: env, envMapIntensity: 1.5, ...extra }));
   const M = {
     oes: tissue('#d9877c', { transparent: true }),
     stomach: tissue('#eba08f', { transparent: true }),
     resected: tissue('#eba08f', { transparent: true }),
     tumour: tissue('#efe2ca', { roughness: 0.58, clearcoat: 0.4, sheenColor: new THREE.Color('#fff6de'), transparent: true }),
     duo: tissue('#eeab8a', { transparent: true }),
-    jej: tissue('#eca592'),
-    ring: tissue('#f0ae9c', { roughness: 0.4, clearcoat: 0.7, vertexColors: false }),
-    suture: metal({ color: '#eef1f5', roughness: 0.3 }),
+    jej: tissue('#eca592', { transparent: true }),
+    ring: tissue('#f4a390', { roughness: 0.4, clearcoat: 0.7, vertexColors: false }),
+    suture: track(new THREE.MeshStandardMaterial({ color: '#f4f1ff', roughness: 0.45, emissive: '#2a2838', envMap: env, envMapIntensity: 0.6 })),
     staple: metal(),
     stapleR: metal({ transparent: true }),
     line: track(new THREE.MeshStandardMaterial({ color: '#fbfaf2', emissive: '#5c5646', roughness: 0.4, envMap: env, envMapIntensity: 0.4 })),
@@ -461,9 +462,9 @@ export function create() {
   addMicroBump(M.tumour, 0.08, [2.8, 2.8, 2.8]);
   addMicroBump(M.ring, 0.02, [3, 3, 3]);
   const peri = { uBolus: { value: new THREE.Vector2(-50, -50) }, uPeri: { value: 0 }, uWave: { value: 0 } };
-  for (const k of ['oes', 'stomach', 'duo']) addPeristalsis(M[k], peri);
+  for (const k of ['oes', 'stomach', 'duo', 'jej']) addPeristalsis(M[k], peri);
   const see = { uSee: { value: 0 } };
-  for (const k of ['oes', 'stomach', 'duo']) addSeeThrough(M[k], see);
+  for (const k of ['oes', 'stomach', 'duo', 'jej']) addSeeThrough(M[k], see);
   for (const k of ['oes', 'stomach', 'duo', 'jej', 'resected']) M[k].side = THREE.DoubleSide; // hollow organs: the far wall shows through
   for (const k in M) hl.register(partOf[k], M[k]);
   const addMesh = (geo, key, parent) => {
@@ -477,7 +478,6 @@ export function create() {
   // ── tract pieces: rows i0…i1 of the centreline, rebuilt in place when the state changes ──
   const RADIAL = 44;
   const Z = V(0, 0, 1);
-  const S = { seal: 0, sealR: 0, post: 0, join: 0 };
   const makePiece = (i0, i1, radial, opts = {}) => {
     const n = i1 - i0 + 1;
     const capEnd = !!opts.capEnd;
@@ -538,15 +538,22 @@ export function create() {
           let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
           let l = Math.hypot(nx, ny, nz);
           const ox = pos[o] - cx[r], oy = pos[o + 1] - cy[r], oz = pos[o + 2] - cz[r];
-          if (l < 1e-9) { nx = ox; ny = oy; nz = oz; l = Math.hypot(nx, ny, nz) || 1; }
+          if (l < 1e-8) { nx = ox; ny = oy; nz = oz; l = Math.hypot(nx, ny, nz); }
+          if (l < 1e-4) { // a pointed row (float32 positions vs float64 centre: compare loosely) (the top of the fundus): face along the tube, outwards
+            const rr = r === 0 ? 1 : r - 1;
+            nx = cx[r] - cx[rr]; ny = cy[r] - cy[rr]; nz = cz[r] - cz[rr]; l = Math.hypot(nx, ny, nz) || 1;
+            nor[o] = nx / l; nor[o + 1] = ny / l; nor[o + 2] = nz / l;
+            continue;
+          }
           if (nx * ox + ny * oy + nz * oz < 0) l = -l;
           nor[o] = nx / l; nor[o + 1] = ny / l; nor[o + 2] = nz / l;
         }
       }
       // at a sealed end the seam's normal leans outwards along the tube
-      for (const [r, sl] of [[0, seal0], [n - 1, seal1]]) {
+      for (let e = 0; e < 2; e++) {
+        const r = e ? n - 1 : 0, sl = e ? seal1 : seal0;
         if (sl <= 0) continue;
-        const rr = r === 0 ? 1 : n - 2;
+        const rr = e ? n - 2 : 1;
         const tx = cx[r] - cx[rr], ty = cy[r] - cy[rr], tz = cz[r] - cz[rr]; // outwards along the tube
         const tl = Math.hypot(tx, ty, tz) || 1;
         for (let j = 0; j < radial; j++) {
@@ -571,6 +578,7 @@ export function create() {
       geo.attributes.position.needsUpdate = true;
       geo.attributes.normal.needsUpdate = true;
       geo.computeBoundingSphere();
+      geo.computeBoundingBox(); // picking tests both, so keep them in step with the shape
     };
     refill(0, 0, 0);
     // vertex colour: soft mottling, a little pinker along the greater curvature
@@ -586,16 +594,16 @@ export function create() {
     }
     // windings that agree with the normals (tube and cap checked separately)
     const ia = geo.index.array;
-    const orient = (from, to) => {
-      const t0 = ia[from] * 3, t1 = ia[from + 1] * 3, t2 = ia[from + 2] * 3;
+    const orient = (from, to, probe) => { // probe: a triangle well away from any collapsed (pointed) row
+      const t0 = ia[probe] * 3, t1 = ia[probe + 1] * 3, t2 = ia[probe + 2] * 3;
       const ux = pos[t1] - pos[t0], uy = pos[t1 + 1] - pos[t0 + 1], uz = pos[t1 + 2] - pos[t0 + 2];
       const vx = pos[t2] - pos[t0], vy = pos[t2 + 1] - pos[t0 + 1], vz = pos[t2 + 2] - pos[t0 + 2];
       if ((uy * vz - uz * vy) * nor[t0] + (uz * vx - ux * vz) * nor[t0 + 1] + (ux * vy - uy * vx) * nor[t0 + 2] < 0) {
         for (let t = from; t < to; t += 3) { const tmp = ia[t + 1]; ia[t + 1] = ia[t + 2]; ia[t + 2] = tmp; }
       }
     };
-    orient(0, nTube);
-    if (capEnd) orient(nTube, ia.length);
+    orient(0, nTube, Math.floor(n / 2) * radial * 6);
+    if (capEnd) orient(nTube, ia.length, nTube);
     return { geo, refill, n, i0, i1, cx, cy, cz };
   };
 
@@ -611,7 +619,7 @@ export function create() {
   addMesh(jej.geo, 'jej', anat);
 
   // ── oesophagus: down through the diaphragm into the cardia ──
-  const oesCurve = new THREE.CatmullRomCurve3([V(1.4, 16.0, -2.6), V(1.8, 13.0, -1.9), V(2.3, 10.3, -1.0), V(3.1, 8.2, -0.3), V(4.4, 6.6, 0.1)], false, 'centripetal');
+  const oesCurve = new THREE.CatmullRomCurve3([V(1.4, 16.0, -2.6), V(1.8, 13.0, -1.9), V(2.3, 10.3, -1.0), V(3.2, 8.1, -0.3), V(4.3, 6.8, 0.1)], false, 'centripetal');
   const OES_SEGS = 70;
   const oesR = (u) => 1.02 + 0.55 * sstep(0.72, 1, u);
   const oesGeo = tubeGeometry(oesCurve, OES_SEGS, 22, oesR, { capStart: true, lumen: new THREE.Color('#7a3434'), wall: new THREE.Color('#f6dcd4') });
@@ -644,6 +652,10 @@ export function create() {
     const duoS = (r) => nearestRouteS(P1[iC2 + r]) + (r > iN - iC2 + 30 ? (r - (iN - iC2 + 30)) * ds : 0);
     duoS.max = duo.n - 1;
     setAS(duo.geo, duoS, 26);
+    const sEnd = duoS(duo.n - 1); // the wave carries on, seamlessly, into the small intestine
+    const jejS = (r) => sEnd + r * ds;
+    jejS.max = jej.n - 1;
+    setAS(jej.geo, jejS, 26);
     const cnt = oesGeo.attributes.position.count, a = new Float32Array(cnt);
     const ring = 23;
     for (let v = 0; v < cnt; v++) a[v] = v < (OES_SEGS + 1) * ring ? (Math.floor(v / ring) / OES_SEGS) * oesCurve.getLength() * 0.97 : 0; // cap at the top
@@ -727,13 +739,15 @@ export function create() {
     sT.lerpVectors(T0[i], T1[i], post).normalize();
     sB.copy(Z).addScaledVector(sT, -Z.dot(sT)).normalize();
     sN.crossVectors(sB, sT);
-    const a = lerp(A0[i], A1[i], post) * 1.22;
+    const a0 = lerp(A0[i], A1[i], post), b0 = lerp(B0[i], B1[i], post);
     bas.makeBasis(sT, sN, sB);
     qTmp.setFromRotationMatrix(bas);
     sTmp.setScalar(Math.max(sc, 1e-4));
     for (let f = 0; f < 2; f++) for (let k = 0; k < NST; k++) {
-      const u = ((k + 0.5) / NST) * 2 - 1;
-      vTmp.copy(sP).addScaledVector(sN, u * a * 0.88).addScaledVector(sT, inward * (0.2 + 0.12 * (k % 2))).addScaledVector(sB, (f ? -1 : 1) * 0.07);
+      // on the flattened wall just short of the seam (same profile as the sealed tube), two staggered rows
+      const u = ((k + 0.5) / NST) * 2 - 1, d = 0.12 + 0.12 * (k % 2), q = d / 2.2, fq = Math.sqrt(q * (2 - q));
+      const a = a0 * (1 + 0.22 * (1 - fq)), b = b0 * fq * Math.sqrt(1 - u * u * 0.85) + 0.03;
+      vTmp.copy(sP).addScaledVector(sN, u * a * 0.9).addScaledVector(sT, inward * d).addScaledVector(sB, (f ? -1 : 1) * b);
       mTmp.compose(vTmp, qTmp, sTmp);
       im.setMatrixAt(slot + f * NST + k, mTmp);
     }
@@ -746,7 +760,7 @@ export function create() {
   const anaG = new THREE.Group(); anat.add(anaG);
   {
     const t = T1[iC1];
-    const ring = new THREE.TorusGeometry(RJ + 0.06, 0.2, 12, 48);
+    const ring = new THREE.TorusGeometry(RJ + 0.08, 0.25, 12, 48);
     addMesh(ring, 'ring', anaG);
     const st = new THREE.InstancedMesh(track(new THREE.CapsuleGeometry(0.05, 0.42, 2, 5)), M.suture, 20);
     st.userData.partId = 'anastomosis';
@@ -768,7 +782,7 @@ export function create() {
     const p = foodGeo.attributes.position, col = new Float32Array(p.count * 3);
     for (let i = 0; i < p.count; i++) {
       const x = p.getX(i), y = p.getY(i), z = p.getZ(i), k = 1 + 0.12 * noise3(x * 2.2, y * 2.2, z * 2.2, 71);
-      p.setXYZ(i, x * 0.72 * k, y * 0.62 * k, z * 0.66 * k);
+      p.setXYZ(i, x * 0.86 * k, y * 0.74 * k, z * 0.78 * k);
       col.set([1, 0.97, 0.92], i * 3);
     }
     foodGeo.setAttribute('color', new THREE.BufferAttribute(col, 3));
@@ -789,7 +803,13 @@ export function create() {
   const SC = 1 / Math.max(size.x, size.y, size.z);
   body.scale.setScalar(SC);
   body.position.copy(ctr).multiplyScalar(-SC);
-  const fixBounds = (im) => { im.boundingBox = box.clone(); im.boundingSphere = box.getBoundingSphere(new THREE.Sphere()); };
+  // fixed, generous bounds (in the anatomy frame) for the instanced marks, so picking never misses them
+  const rot = anat.rotation.clone();
+  anat.rotation.set(0, 0, 0); body.updateMatrixWorld(true);
+  const localBox = new THREE.Box3().setFromObject(anat);
+  anat.rotation.copy(rot);
+  localBox.applyMatrix4(body.matrixWorld.clone().invert());
+  const fixBounds = (im) => { im.boundingBox = localBox.clone(); im.boundingSphere = localBox.getBoundingSphere(new THREE.Sphere()); };
   fixBounds(dashes); fixBounds(staplesLive); fixBounds(staplesR);
 
   // ── procedure state as a pure function of the timeline T ∈ [0, 4] ──
@@ -809,11 +829,11 @@ export function create() {
   evalState(0);
 
   const gapDir = V(-0.3, -0.75, 0.9).normalize();
-  const awayDir = V(0.5, -4.5, 7.0);
+  const awayDir = V(6.5, -3.8, 2.2); // out to the side, into free space
   const resPivot = G[Math.round((iC1 + iC2) / 2)].clone();
   resG.position.copy(resPivot); resIn.position.copy(resPivot).negate();
   const rotAx = V(1, 0.2, 0).normalize();
-  let lastT = -1;
+  let lastT = -1, lastLive = -1, lastSealR = -1;
   const applyState = (T) => {
     if (T === lastT) return;
     lastT = T;
@@ -832,28 +852,22 @@ export function create() {
     dashes.visible = St.draw > 0 && St.lineFade > 0;
     // divided ends pinch closed into stapled seams; they open again as the remnant meets the duodenum
     const sealLive = St.seal * (1 - St.join);
-    remnant.refill(St.post, 0, sealLive);
-    duo.refill(St.post, sealLive, 0);
-    resec.refill(0, St.seal, St.seal);
+    const kLive = St.post * 3.1 + sealLive;
+    if (kLive !== lastLive) { lastLive = kLive; remnant.refill(St.post, 0, sealLive); duo.refill(St.post, sealLive, 0); }
+    if (St.seal !== lastSealR) { lastSealR = St.seal; resec.refill(0, St.seal, St.seal); }
     const stSc = sstep(0.35, 0.9, St.seal) * (1 - sstep(0, 0.6, St.join));
     placeSeam(staplesLive, 0, iC1, St.post, -1, stSc);
     placeSeam(staplesLive, NST * 2, iC2, St.post, 1, stSc);
     staplesLive.visible = stSc > 0.001;
     staplesR.visible = St.seal > 0.3 && St.away < 1;
-    for (let k = 0; k < NST * 4 && St.seal < 1; k++) {
-      staplesR.getMatrixAt(k, mTmp);
-      mTmp.decompose(vTmp, qTmp, sTmp);
-      sTmp.setScalar(Math.max(sstep(0.35, 0.9, St.seal), 1e-4));
-      mTmp.compose(vTmp, qTmp, sTmp);
-      staplesR.setMatrixAt(k, mTmp);
-    }
-    staplesR.instanceMatrix.needsUpdate = true;
+    placeSeam(staplesR, 0, iC1, 0, 1, sstep(0.35, 0.9, St.seal));
+    placeSeam(staplesR, NST * 2, iC2, 0, -1, sstep(0.35, 0.9, St.seal));
     // the removed part: eases away from the cuts, then is lifted out and fades
     if (St.away < 0.999) {
       resG.visible = true; resG.scale.setScalar(1);
       resG.position.copy(resPivot).addScaledVector(gapDir, 0.9 * St.gap).addScaledVector(awayDir, St.away);
       resG.quaternion.setFromAxisAngle(rotAx, 0.35 * St.away);
-      const f = 1 - sstep(0.35, 1, St.away);
+      const f = 1 - sstep(0.25, 0.9, St.away);
       M.resected.userData.hl.fade = M.tumour.userData.hl.fade = M.stapleR.userData.hl.fade = f;
       M.resected.depthWrite = M.tumour.depthWrite = f > 0.98;
     } else collapse(resG);
@@ -865,6 +879,8 @@ export function create() {
     } else collapse(anaG);
     // see-through walls so the food can be followed
     see.uSee.value = 0.9 * St.clear;
+    const dw = St.clear < 0.3; // once see-through, let the layers blend (no depth holes where tubes meet)
+    M.oes.depthWrite = M.stomach.depthWrite = M.duo.depthWrite = M.jej.depthWrite = dw;
     peri.uPeri.value = 0.55 * St.peri;
   };
   applyState(0);

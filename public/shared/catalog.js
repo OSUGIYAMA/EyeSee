@@ -49,6 +49,8 @@ export const MODELS = [
   { id: 'heart', icon: '🫀', ja: '心臓', en: 'Heart' },
   { id: 'lungs', icon: '🫁', ja: '肺', en: 'Lungs' },
   { id: 'artery', icon: '🩸', ja: '冠動脈とステント治療', en: 'Coronary artery & stent (PCI)' },
+  { id: 'liver', icon: '', ja: '肝切除術', en: 'Liver resection' },
+  { id: 'stomach', icon: '', ja: '胃切除術', en: 'Stomach surgery (gastrectomy)' },
   { id: 'body', icon: '🧍', ja: '人体（等身大）', en: 'Life-size body' },
 ];
 

@@ -268,7 +268,7 @@ function makeHighlighter() {
           const mat = e.mats[m], h = mat.userData.hl;
           mat.color.copy(h.color).multiplyScalar(dm);
           mat.emissive.copy(h.emissive).lerp(h.glow, gl);
-          if (mat.transparent) mat.opacity = h.opacity * h.fade * (1 - 0.3 * e.dim);
+          if (mat.transparent) mat.opacity = h.opacity * h.fade; // dimming is by colour only (these parts are solid)
         }
       }
     },
@@ -978,7 +978,7 @@ export function create() {
       M.clampMetal.userData.hl.fade = M.clampPad.userData.hl.fade = sstep(0, 0.5, inAmt);
     } else collapse(clampG);
     // tissue tone while inflow is clamped
-    for (const m of liverMats) m.userData.hl.color.copy(m.userData.hl.base).lerp(duskCol, 0.22 * S.dusk);
+    for (let i = 0; i < liverMats.length; i++) { const h = liverMats[i].userData.hl; h.color.copy(h.base).lerp(duskCol, 0.22 * S.dusk); }
     // cut line drawn progressively, then gone once the section lifts away
     const prog = S.draw * (NDASH + 2);
     for (let k = 0; k < NDASH; k++) {
@@ -1003,14 +1003,15 @@ export function create() {
     } else collapse(pieceG);
     // regrowth: the remnant enlarges and the cut surface fills in
     remnantG.scale.setScalar(1 + 0.1 * S.grow);
-    const fill = 0.78 * S.grow;
+    const fill = 0.86 * S.grow;
     for (let i = 0; i < bowlPos.length; i++) {
       bowlPos[i] = lerp(capBase[i], capLid[i], fill);
       bowlNor[i] = lerp(baseNor[i], lidNor[i], fill);
     }
-    M.cutR.userData.hl.color.copy(M.cutR.userData.hl.base).lerp(healCol, 0.55 * S.grow);
+    M.cutR.userData.hl.color.copy(M.cutR.userData.hl.base).lerp(healCol, 0.72 * S.grow);
     bowlGeo.attributes.position.needsUpdate = true;
     bowlGeo.attributes.normal.needsUpdate = true;
+    bowlGeo.computeBoundingSphere(); bowlGeo.computeBoundingBox(); // keep picking bounds in step
   };
   applyState(0);
 

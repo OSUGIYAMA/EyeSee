@@ -1118,7 +1118,7 @@ function syncStage() {
         stageObj = mod.create();
         if (id === 'body') bodyAnchor.add(stageObj.object);
         else {
-          stageHolder = fitHolder(stageObj.object, id === 'artery' ? 0.62 : 0.42);
+          stageHolder = fitHolder(stageObj.object, { artery: 0.62, liver: 0.5, stomach: 0.5 }[id] || 0.42);
           const s = stageHolder.scale.x;
           stageHolder.scale.setScalar(s * 0.6);
           stageAnchor.add(stageHolder);

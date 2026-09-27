@@ -139,7 +139,7 @@ const MEDIATOR_SCHEMA = S.obj({
     S.obj({
       id: S.enum(MODELS.map((m) => m.id)),
       highlight: S.nullable(S.str('part id to highlight, e.g. stenosis, lad, lv, right-lower, chest-center')),
-      step: S.nullable(S.int('procedure step 0–4 for the artery model')),
+      step: S.nullable(S.int('procedure step 0–4 for artery, liver or stomach')),
     }),
   ),
   imagePrompt: S.nullable(S.str('prompt for a clean, text-free medical illustration, or null')),
@@ -156,7 +156,7 @@ export function mediate(state, { from, question }) {
 You can:
 - Answer questions about what was said, medical concepts and the proposed procedure in plain language. Do not make diagnoses or treatment decisions and do not contradict the doctor's clinical judgment; if something seems inconsistent or unclear, say it should be clarified with the doctor.
 - Check what is missing. When asked things like "did I forget anything?" / 「言い忘れはある？」, compare the conversation with informed-consent requirements (diagnosis, procedure, benefits, risks with likelihood, alternatives incl. non-surgical and no treatment, anesthesia, recovery, the patient's unanswered questions) and list the gaps in omissions (else leave omissions empty). severity "critical" for gaps that commonly underlie inadequate-consent claims (alternatives incl. non-surgical, material risks, the option of no treatment, unanswered patient questions), otherwise "recommended".
-- Show a 3D model from the library when it helps: ${modelList}. Heart parts: lv, rv, la, ra, aorta, pulmonary, pulmonary-veins, vena-cava, rca, left-main, lad, lcx, stenosis. Lung parts: trachea, carina, bronchi, right-upper, right-middle, right-lower, left-upper, left-lower, diaphragm. Artery parts: wall, plaque, blood, wire, catheter, balloon, stent. Artery steps: 0 narrowed, 1 wire & catheter, 2 balloon, 3 stent, 4 result.
+- Show a 3D model from the library when it helps: ${modelList}. Heart parts: lv, rv, la, ra, aorta, pulmonary, pulmonary-veins, vena-cava, rca, left-main, lad, lcx, stenosis. Lung parts: trachea, carina, bronchi, right-upper, right-middle, right-lower, left-upper, left-lower, diaphragm. Artery parts: wall, plaque, blood, wire, catheter, balloon, stent. Liver resection parts: right-lobe, left-lobe, tumour, resected, gallbladder, portal-vein, hepatic-artery, hepatic-veins, bile-duct, clamp, cut-line (steps 0 tumour, 1 clamp, 2 cut line, 3 removal, 4 regrowth). Gastrectomy parts: oesophagus, stomach, tumour, resected, duodenum, small-intestine, anastomosis, cut-line, food (steps 0 tumour, 1 separate, 2 remove, 3 reconnect, 4 eating after recovery). Artery steps: 0 narrowed, 1 wire & catheter, 2 balloon, 3 stent, 4 result.
 - Ask for an illustration (imagePrompt) only when a picture would genuinely help and no 3D model fits. The image must contain NO text or letters (the app adds captions); give a short imageCaption in both languages.
 - Use web search for current factual information when needed.
 - Change the patient's language: if the patient asks to switch language (e.g. "言語をスペイン語にして", "switch to Spanish", or simply asks in another language to read everything in it), set setPatientLanguage to that ISO code and confirm briefly in the NEW language in answerPatient. Otherwise null.

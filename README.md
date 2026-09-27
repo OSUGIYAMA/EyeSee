@@ -75,7 +75,7 @@ That last finding is why EyeSee's understanding score cannot reach 7/10 until al
 | Hard words | Chips show which terms were explained to the patient. Tap one to generate an illustration. | Glossary panel: plain-language explanations (optionally with a picture). |
 | Nuance | Notes such as "『はい』 may mean 'I'm listening', not 'I agree'", or ずきずき → "throbbing (zuki-zuki)". Warnings for risky phrasing ("100% safe"). | — |
 | Symptoms | Sees the patient's symptom map: each spot on a 3D body with its sensation and strength. | Points at a life-size body, picks the sensation from 10 animated orbs (ずきずき, ちくちく, しめつけ…), then the strength. Can start it any time with 伝える. Rich feelings too (rushed, needs time, wants family…). |
-| 3D | Rotate the model or tap a part: the headset mirrors it live. | Heart (with stenosis), lungs, coronary stent (PCI) in 5 steps, life-size body. |
+| 3D | Rotate the model or tap a part: the headset mirrors it live. | Heart (with stenosis), lungs, and step-by-step procedures: coronary stent (PCI), liver resection, gastrectomy. |
 | I see | Sees "I see" / "I don't understand" on each utterance. After an "I don't understand", AI suggests a simpler way to say it. | Physical わかった (I see) / わからない (I don't understand) buttons. |
 | EyeSee AI | Hold the AI button and ask, e.g. "Did I forget anything?" | Hold the big AI button and ask. The answer is visible to both, in both languages. |
 | Consent | Understanding meter 0–10 (JEV), always on top. At **7** the consent step unlocks → AI final check → checkpoints → signatures. | Confirms each checkpoint (理解しました / 質問がある), then signs in the air with a finger. |
@@ -151,7 +151,7 @@ Cost guards: 12 images per visit, 60 paid AI calls per minute (configurable in `
 ```
 
 - `server/`: `index.js` (HTTP/HTTPS/WS), `pipeline.js` (speech → minutes → judge → consent), `ai/` (Gemini, Claude, OpenAI, JEV judge, prompts, offline fallbacks), `demo/script.js`, `record.js`
-- `public/phone/`: the doctor's app. `public/quest/`: the patient's WebXR app. `public/shared/`: catalogs, recorder, link, **3D models** (`models/heart.js`, `lungs.js`, `artery.js`, `body.js`, `painviz.js`, all procedural).
+- `public/phone/`: the doctor's app. `public/quest/`: the patient's WebXR app. `public/shared/`: catalogs, recorder, link, **3D models** (`models/heart.js`, `lungs.js`, `artery.js`, `liver.js`, `stomach.js`, `body.js`, `painviz.js`, all procedural).
 
 ## Tests
 
