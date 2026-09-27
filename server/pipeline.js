@@ -2,8 +2,8 @@
 // Doctor audio comes from the phone mic, patient audio from the Quest mic; each entry is shown
 // to both sides (original + translation), and during consent every entry re-scores understanding.
 import { config, llmProvider } from './config.js';
-import { FEELINGS, PAIN_TYPES, MODES, L } from '../public/shared/catalog.js';
-import { interpret, hearAndInterpret, consentPackage, mediate, helpUnderstand, termImagePrompt } from './ai/tasks.js';
+import { FEELINGS, PAIN_TYPES, MODES, LANGUAGES, L } from '../public/shared/catalog.js';
+import { interpret, hearAndInterpret, consentPackage, mediate, helpUnderstand, termImagePrompt, illustrationPrompt } from './ai/tasks.js';
 import { canHearAudio } from './ai/llm.js';
 import { transcribe } from './ai/openai.js';
 import { makeImage } from './ai/images.js';
@@ -11,23 +11,60 @@ import { assess } from './ai/judge.js';
 import { offlineConsentPackage, offlineMediator, offlineHelp, RIGHTS_CHECKPOINT } from './ai/offline.js';
 import { DEMO_STEPS, DEMO_CONSENT } from './demo/script.js';
 import { newUnderstanding } from './room.js';
+import { prewarm } from './i18n.js';
 
 const other = (role) => (role === 'doctor' ? 'patient' : 'doctor');
+
+/** Models sometimes answer "Japanese" or "ja-JP" for a language code. */
+export function normLang(x) {
+  if (!x) return null;
+  const v = String(x).trim().toLowerCase();
+  const two = v.split(/[-_]/)[0];
+  if (LANGUAGES[two]) return two;
+  if (two === 'fil') return 'tl';
+  return Object.keys(LANGUAGES).find((c) => LANGUAGES[c].name.toLowerCase() === v || LANGUAGES[c].native.toLowerCase() === v) || null;
+}
+
+/** Switch the patient's language (doctor's menu, the patient asking AI, or auto-detected speech). */
+export function setPatientLang(room, code, how = 'doctor') {
+  const s = room.state;
+  if (!LANGUAGES[code] || code === s.doctorLang || code === s.patientLang) return false;
+  s.patientLang = code;
+  room.addEntry({ kind: 'system', speaker: 'system', text: { doctor: `Patient language: ${LANGUAGES[code].name}${how === 'auto' ? ' (detected)' : ''}`, patient: LANGUAGES[code].native }, event: { type: 'language', lang: code, how } });
+  room.emit({ type: 'language', lang: code });
+  prewarm(code); // translate the headset's interface text now, not when the patient is waiting
+  room.changed();
+  return true;
+}
 const langOf = (state, role) => (role === 'doctor' ? state.doctorLang : state.patientLang);
 const uid = () => Math.random().toString(36).slice(2, 9);
 
 // ---------------------------------------------------------------- speech
 
 /** Audio segment from a device mic. Returns quickly; the entry appears and fills in asynchronously. */
-export async function speechAudio(room, role, audio) {
+// Phrases speech models tend to produce from noise or silence.
+const PHANTOM = /^(thank you( for watching)?|thanks( for watching)?|you|bye|okay|ok|so|hmm+|uh+|um+|ご視聴ありがとうございました|ありがとうございました|はい|うん)[.!。！…]*$/i;
+
+/**
+ * Audio segment from a device mic. Returns quickly; the entry appears and fills in asynchronously.
+ * mode 'ptt' = the person held the talk button (intentional); 'vad' = hands-free voice detection,
+ * which is filtered hard so background talk and noise never become transcript lines.
+ */
+export async function speechAudio(room, role, audio, { mode = 'vad' } = {}) {
   const s = room.state;
   if (canHearAudio()) {
     // One round trip: transcript + translation + glossary + notes.
     const entry = room.addEntry({ kind: 'speech', speaker: role, orig: { text: '', lang: langOf(s, role) }, tr: null, pending: 'hearing', source: 'voice', terms: [] });
     try {
-      const r = await hearAndInterpret(s, { speaker: role, audio });
+      let r = await hearAndInterpret(s, { speaker: role, audio });
       const text = (r.transcript || '').trim();
-      if (!text || crossTalk(room, role, text, r.sourceLanguage, entry.id)) return dropEntry(room, entry.id);
+      const phantom = mode !== 'ptt' && (r.background || PHANTOM.test(text));
+      r.sourceLanguage = normLang(r.sourceLanguage);
+      if (!text || phantom || crossTalk(room, role, text, r.sourceLanguage, entry.id)) {
+        if (phantom && text) console.log(`[speech] ignored background/noise from ${role}: "${text.slice(0, 60)}"`);
+        return dropEntry(room, entry.id);
+      }
+      if (await switchedLanguage(room, role, r.sourceLanguage)) r = await interpret(s, { speaker: role, text, seq: entry.seq });
       applyInterpretation(room, entry.id, role, text, r);
     } catch (err) {
       console.warn('[speech] audio interpretation failed:', err.message);
@@ -55,6 +92,8 @@ export async function speechText(room, role, text, source = 'typed', canned = nu
   else if (llmProvider()) {
     try {
       r = await interpret(room.state, { speaker: role, text, seq: entry.seq });
+      r.sourceLanguage = normLang(r.sourceLanguage);
+      if (await switchedLanguage(room, role, r.sourceLanguage)) r = await interpret(room.state, { speaker: role, text, seq: entry.seq });
     } catch (err) {
       console.warn('[speech] interpretation failed:', err.message);
       r = canned;
@@ -69,10 +108,26 @@ export async function speechText(room, role, text, source = 'typed', canned = nu
   return entry;
 }
 
+/**
+ * The headset hears only the patient. If they speak a language that is neither the doctor's nor the
+ * current patient language, that is their language: switch, and the caller re-interprets.
+ */
+async function switchedLanguage(room, role, spoken) {
+  const s = room.state;
+  if (role !== 'patient' || !spoken || spoken === s.patientLang || spoken === s.doctorLang) return false;
+  return setPatientLang(room, spoken, 'auto');
+}
+
 function applyInterpretation(room, id, role, text, r) {
   const s = room.state;
-  const listener = other(role);
-  const terms = (r.terms || []).slice(0, 4).map((t) => ({
+  // Direction follows the spoken language, not the device: Japanese heard by the doctor's phone is
+  // the patient (or a companion) talking, and must reach the doctor in English.
+  const toPatient = r.direction ? r.direction === 'toPatient' : role === 'doctor';
+  const listener = toPatient ? 'patient' : 'doctor';
+  // The headset mic hears only its wearer (who may choose to speak accented English), so only the
+  // phone's attribution is corrected.
+  const speaker = role === 'doctor' && !toPatient && s.patientLang !== s.doctorLang ? 'patient' : role;
+  const terms = cleanTerms(r.terms || [], { audience: listener, lang: langOf(s, listener), origText: text }).map((t) => ({
     id: uid(),
     term: t.term,
     display: t.display || t.term,
@@ -82,14 +137,40 @@ function applyInterpretation(room, id, role, text, r) {
     image: null,
   }));
   room.updateEntry(id, {
-    orig: { text, lang: r.sourceLanguage || langOf(s, role) },
+    speaker,
+    heardBy: speaker !== role ? role : undefined,
+    orig: { text, lang: normLang(r.sourceLanguage) || langOf(s, speaker) },
     tr: r.translation ? { text: r.translation, lang: langOf(s, listener) } : null,
     terms,
-    note: role === 'patient' ? r.doctorNote || null : null,
-    risk: role === 'doctor' && r.risk?.issue ? r.risk : null,
+    note: !toPatient ? r.doctorNote || null : null,
+    risk: toPatient && r.risk?.issue ? r.risk : null,
     pending: false,
   });
   afterSpeech(room);
+}
+
+const CJK_LANGS = new Set(['ja', 'zh', 'ko']);
+const squash = (t) => String(t || '').toLowerCase().replace(/[\s\-‐・･.,'’"]/g, '');
+
+/**
+ * Glossary hygiene. Patient-facing terms must come from what was actually said and read naturally
+ * in the patient's language (no romaji like "ichiou"); at most 4 per utterance.
+ */
+function cleanTerms(terms, { audience, lang, origText }) {
+  const acronym = /^[A-Z0-9]{2,6}$/;
+  return terms
+    .filter((t) => t?.term && t.explanation)
+    .filter((t) => {
+      if (audience !== 'patient') return true;
+      if (!squash(origText).includes(squash(t.term))) return false; // invented or from another utterance
+      if (CJK_LANGS.has(lang)) {
+        const latin = (String(t.display || '').match(/[A-Za-z0-9]+/g) || []).filter((w) => !acronym.test(w) && !/^\d+$/.test(w));
+        if (latin.length) return false; // romaji / English in the display
+        if (/[A-Za-z]{4,}/.test(String(t.explanation).replace(/\b[A-Z0-9]{2,6}\b/g, ''))) return false; // English or romaji in the explanation
+      }
+      return true;
+    })
+    .slice(0, 4);
 }
 
 function dropEntry(room, id) {
@@ -199,7 +280,7 @@ export function setMode(room, mode) {
   if (!MODES.some((m) => m.id === mode) || s.mode === mode) return;
   s.mode = mode;
   const m = MODES.find((x) => x.id === mode);
-  room.addEntry({ kind: 'system', speaker: 'system', text: { doctor: `Phase: ${m.en}`, patient: `${L(m, s.patientLang)}` }, event: { type: 'mode', mode } });
+  room.addEntry({ kind: 'system', speaker: 'system', text: { doctor: m.en, patient: `${L(m, s.patientLang)}` }, event: { type: 'mode', mode } });
   if (mode === 'consent') {
     // Understanding starts at 0 when the informed-consent conversation begins.
     s.understanding = newUnderstanding();
@@ -243,11 +324,11 @@ export function painIntensity(room, v) {
 }
 
 function painText(s, p, v) {
-  const lv = v == null ? '' : ` — ${v}/10`;
-  if (!p) return { doctor: `Pain intensity${lv}`, patient: `痛みの強さ${lv}` };
+  const lv = v == null ? '' : ` · ${v}/10`;
+  if (!p) return { doctor: `Pain${lv}`, patient: `痛み${lv}` };
   return {
-    doctor: `Pain quality: ${p.en} (“${p.ja}”) — ${p.enHint}${lv}`,
-    patient: `痛みの種類：${p.ja}（${p.jaHint}）${lv}`,
+    doctor: `Pain: ${p.en} (${p.ja})${lv}`,
+    patient: `痛み：${p.ja}${lv}`,
   };
 }
 
@@ -256,10 +337,10 @@ export function bodyPoint(room, region, point, role = 'patient') {
   if (!region?.id) return;
   const stage = s.stage?.tool === 'body' ? s.stage : (s.stage = { tool: 'body' });
   stage.points = [...(stage.points || []), { id: uid(), region, point, by: role }].slice(-8);
-  const names = stage.points.map((x) => x.region.label);
-  const text = { doctor: `Pain location: ${names.map((n) => n.en).join(', ')}`, patient: `痛む場所：${names.map((n) => L(n, s.patientLang)).join('、')}` };
-  if (stage.entryId && room.entry(stage.entryId)) room.updateEntry(stage.entryId, { event: { type: 'body', regions: names }, text });
-  else stage.entryId = room.event('body', { regions: names }, text, role).id;
+  const regions = stage.points.map((x) => ({ id: x.region.id, label: x.region.label }));
+  const text = { doctor: `Where it hurts: ${regions.map((r) => r.label.en).join(', ')}`, patient: `痛い場所：${regions.map((r) => L(r.label, s.patientLang)).join('、')}` };
+  if (stage.entryId && room.entry(stage.entryId)) room.updateEntry(stage.entryId, { event: { type: 'body', regions }, text });
+  else stage.entryId = room.event('body', { regions }, text, role).id;
   room.changed();
 }
 
@@ -267,9 +348,9 @@ export function feeling(room, id) {
   const s = room.state;
   const f = FEELINGS.find((x) => x.id === id);
   if (!f) return;
-  room.event('feeling', { id }, { doctor: `Patient feels: ${f.emoji} ${f.en} (${f.ja})`, patient: `気持ち：${f.emoji} ${L(f, s.patientLang)}` }, 'patient');
+  room.event('feeling', { id }, { doctor: `Patient feels ${f.en.toLowerCase()}`, patient: `気持ち：${L(f, s.patientLang)}` }, 'patient');
   if (s.stage?.tool === 'feelings') s.stage.selected = [...new Set([...(s.stage.selected || []), id])];
-  if (f.concern) room.emit({ type: 'alert', to: 'doctor', text: `${f.emoji} Patient: ${f.en}` }, 'doctor');
+  if (f.concern) room.emit({ type: 'alert', to: 'doctor', text: `Patient: ${f.en}` }, 'doctor');
   if (s.mode === 'consent') scheduleJudge(room);
 }
 
@@ -279,7 +360,7 @@ export function feeling(room, id) {
 export function iSee(room, role, entryId) {
   const target = entryId ? room.entry(entryId) : room.lastEntry((e) => e.kind === 'speech' && e.speaker === other(role));
   if (target) room.updateEntry(target.id, { iSee: true, confused: false });
-  const text = role === 'patient' ? { doctor: '👍 Patient: “I see.”', patient: '👍 わかりました' } : { doctor: '👍 You: “I see.”', patient: '👍 医師：「わかりました」' };
+  const text = role === 'patient' ? { doctor: 'Patient: I see', patient: 'わかりました' } : { doctor: 'You: I see', patient: '医師：わかりました' };
   room.event('isee', { target: target?.id || null }, text, role);
   if (room.state.mode === 'consent') scheduleJudge(room);
 }
@@ -292,10 +373,10 @@ export async function confused(room, role, entryId) {
   room.updateEntry(target.id, { confused: true, iSee: false });
   if (role === 'doctor') {
     // The doctor asking the patient to say it again.
-    room.event('confused', { target: target.id }, { doctor: '🤔 You asked the patient to explain more.', patient: '🤔 医師：「もう少し詳しく教えてください」' }, 'doctor');
+    room.event('confused', { target: target.id }, { doctor: 'You asked the patient to say more', patient: '医師：もう少し詳しく教えてください' }, 'doctor');
     return;
   }
-  const ev = room.event('confused', { target: target.id }, { doctor: `🤔 Patient didn't understand: “${target.orig.text.slice(0, 90)}”`, patient: '🤔 わからない、を医師に伝えました' }, 'patient');
+  const ev = room.event('confused', { target: target.id }, { doctor: `Patient didn't understand “${target.orig.text.slice(0, 90)}”`, patient: 'わからない' }, 'patient');
   if (s.mode === 'consent') scheduleJudge(room);
   let help;
   try {
@@ -313,19 +394,28 @@ export async function termImage(room, entryId, termId) {
   const s = room.state;
   const e = room.entry(entryId);
   const t = e?.terms?.find((x) => x.id === termId);
-  if (!t || t.image) return;
-  if (s.imagesUsed >= config.maxImagesPerSession) return room.emit({ type: 'toast', level: 'info', text: { doctor: 'Image limit reached for this session', patient: '画像の上限に達しました' } });
+  if (!t) return;
+  const caption = { doctor: t.term, patient: t.display, detail: t.explanation };
+  // Already drawn: just bring it up front again.
+  if (t.image && t.image !== 'pending') return setStage(room, { tool: 'image', url: t.image, caption, entryId, termId });
+  if (t.image === 'pending') return;
+  if (s.imagesUsed >= config.maxImagesPerSession) return room.emit({ type: 'toast', level: 'info', text: { doctor: 'Image limit reached for this visit', patient: '' } });
   s.imagesUsed++;
   t.image = 'pending';
   room.updateEntry(entryId, {});
+  // Open the picture window right away so the patient sees it being drawn.
+  setStage(room, { tool: 'image', url: null, caption, entryId, termId });
   try {
-    t.image = await makeImage(termImagePrompt(t));
+    const prompt = llmProvider() ? await illustrationPrompt({ term: t.term, explanation: t.explanation, context: e.orig.text }) : termImagePrompt(t);
+    t.image = await makeImage(prompt);
   } catch (err) {
     console.warn('[image] failed:', err.message);
     t.image = null;
-    room.emit({ type: 'toast', level: 'error', text: { doctor: `Image failed: ${err.message}`, patient: '画像を作れませんでした' } });
+    room.emit({ type: 'toast', level: 'error', text: { doctor: `Image failed: ${err.message}`, patient: '' } });
   }
   room.updateEntry(entryId, {});
+  const st = s.stage;
+  if (st?.tool === 'image' && st.termId === termId) setStage(room, t.image ? { ...st, url: t.image } : null);
 }
 
 // ---------------------------------------------------------------- EyeSee AI (shared mediator)
@@ -376,14 +466,17 @@ export async function askAI(room, role, question) {
     pending: false,
   };
   room.updateEntry(entry.id, { ai });
+  if (r.setPatientLanguage) setPatientLang(room, r.setPatientLanguage, role === 'patient' ? 'patient' : 'doctor');
   if (r.showModel?.id) showModel(room, r.showModel);
   if (r.imagePrompt && s.imagesUsed < config.maxImagesPerSession) {
     s.imagesUsed++;
     ai.image = 'pending';
     room.updateEntry(entry.id, {});
+    const caption = r.imageCaption || { doctor: '', patient: '' };
+    setStage(room, { tool: 'image', url: null, caption, entryId: entry.id });
     try {
-      ai.image = await makeImage(`${r.imagePrompt}\nNo text, letters, numbers or labels in the image.`);
-      setStage(room, { tool: 'image', url: ai.image, caption: r.imageCaption || { doctor: '', patient: '' }, entryId: entry.id });
+      ai.image = await makeImage(await illustrationPrompt({ term: caption.doctor || question, explanation: r.imagePrompt, context: question }));
+      setStage(room, { tool: 'image', url: ai.image, caption, entryId: entry.id });
     } catch (err) {
       console.warn('[ai] image failed:', err.message);
       ai.image = null;
@@ -427,7 +520,7 @@ export async function openConsent(room, { force = false } = {}) {
     checkpoints: cps.map((c, i) => ({ id: `cp${i + 1}`, ...c, ack: null, ackTs: null })),
     omissions: pkg.omissions || [],
   });
-  room.addEntry({ kind: 'system', speaker: 'system', text: { doctor: `EyeSee AI final check: ${s.consent.omissions.length ? `${s.consent.omissions.length} item(s) to review` : 'nothing missing'}`, patient: '最終チェックを行いました' }, event: { type: 'finalCheck', omissions: s.consent.omissions } });
+  room.addEntry({ kind: 'system', speaker: 'system', text: { doctor: `Final check: ${s.consent.omissions.length ? `${s.consent.omissions.length} item${s.consent.omissions.length > 1 ? 's' : ''} to review` : 'nothing missing'}`, patient: '最終確認' }, event: { type: 'finalCheck', omissions: s.consent.omissions } });
   room.changed();
 }
 
@@ -439,7 +532,7 @@ export function consentProceed(room, { acknowledgeOmissions = false } = {}) {
   if (critical.length && !acknowledgeOmissions) return;
   if (critical.length) {
     c.overrides.push({ ts: new Date().toISOString(), omissions: critical });
-    room.addEntry({ kind: 'system', speaker: 'system', text: { doctor: `Doctor proceeded despite ${critical.length} critical item(s) flagged by the final check.`, patient: '医師が最終チェックの指摘を確認して先に進みました。' }, event: { type: 'override' } });
+    room.addEntry({ kind: 'system', speaker: 'system', text: { doctor: `Proceeded despite ${critical.length} flagged item${critical.length > 1 ? 's' : ''}`, patient: '最終確認を終えました' }, event: { type: 'override' } });
   }
   c.status = 'review';
   c.index = 0;
@@ -449,7 +542,7 @@ export function consentProceed(room, { acknowledgeOmissions = false } = {}) {
 export function consentCancel(room) {
   const s = room.state;
   if (!s.consent) return;
-  room.addEntry({ kind: 'system', speaker: 'system', text: { doctor: 'Consent step closed to continue the discussion.', patient: '説明の続きに戻ります。' }, event: { type: 'consentCancel' } });
+  room.addEntry({ kind: 'system', speaker: 'system', text: { doctor: 'Back to discussion', patient: '説明に戻ります' }, event: { type: 'consentCancel' } });
   s.consent = null;
   room.changed();
 }
@@ -462,8 +555,8 @@ export function consentAck(room, cpId, status) {
   cp.ack = status;
   cp.ackTs = new Date().toISOString();
   const i = c.checkpoints.indexOf(cp);
-  room.event('checkpoint', { cp: cp.id, status }, status === 'understood' ? { doctor: `✓ Patient confirmed: ${cp.doctor}`, patient: `✓ 確認：${cp.patient}` } : { doctor: `❓ Patient has a question about: ${cp.doctor}`, patient: `❓ 質問：${cp.patient}` }, 'patient');
-  if (status === 'question') room.emit({ type: 'alert', to: 'doctor', text: `❓ Question on: ${cp.doctor}` }, 'doctor');
+  room.event('checkpoint', { cp: cp.id, status }, status === 'understood' ? { doctor: `Confirmed: ${cp.doctor}`, patient: `確認：${cp.patient}` } : { doctor: `Question about: ${cp.doctor}`, patient: `質問：${cp.patient}` }, 'patient');
+  if (status === 'question') room.emit({ type: 'alert', to: 'doctor', text: `Patient has a question: ${cp.doctor}` }, 'doctor');
   const next = c.checkpoints.findIndex((x, j) => j > i && x.ack !== 'understood');
   c.index = next >= 0 ? next : c.checkpoints.findIndex((x) => x.ack !== 'understood');
   if (c.checkpoints.every((x) => x.ack === 'understood')) {
@@ -485,13 +578,13 @@ export function sign(room, role, dataUrl) {
   const c = room.state.consent;
   if (!c || c.status !== 'signing' || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/') || dataUrl.length > 400_000) return;
   c.signatures[role] = { dataUrl, ts: new Date().toISOString() };
-  room.event('signature', { role }, role === 'patient' ? { doctor: '✍️ Patient signed.', patient: '✍️ 署名しました' } : { doctor: '✍️ You signed.', patient: '✍️ 医師が署名しました' }, role);
+  room.event('signature', { role }, role === 'patient' ? { doctor: 'Patient signed', patient: '署名しました' } : { doctor: 'You signed', patient: '医師が署名しました' }, role);
   if (c.signatures.patient && c.signatures.doctor) {
     c.status = 'signed';
     c.signedAt = new Date().toISOString();
     c.scoreAtSign = room.state.understanding.score;
     c.hash = room.hash();
-    room.addEntry({ kind: 'system', speaker: 'system', text: { doctor: `Informed consent recorded · SHA-256 ${c.hash.slice(0, 12)}…`, patient: 'インフォームド・コンセントが記録されました' }, event: { type: 'signed' } });
+    room.addEntry({ kind: 'system', speaker: 'system', text: { doctor: 'Consent recorded', patient: '同意が記録されました' }, event: { type: 'signed' } });
     room.emit({ type: 'signed' });
   }
   room.changed();

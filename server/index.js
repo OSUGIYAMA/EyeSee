@@ -12,6 +12,7 @@ import { config, caps, ROOT, DATA_DIR, lanAddresses } from './config.js';
 import { getRoom } from './room.js';
 import * as P from './pipeline.js';
 import { renderRecord } from './record.js';
+import { pack } from './i18n.js';
 
 const app = express();
 app.disable('x-powered-by');
@@ -24,6 +25,8 @@ app.use(express.static(path.join(ROOT, 'public'), { extensions: ['html'] }));
 app.use(express.json({ limit: '1mb' }));
 
 app.get('/api/config', (req, res) => res.json({ caps: caps(), demoSteps: P.demoLength(), lan: lanAddresses(), ports: { http: config.port, https: config.httpsPort } }));
+
+app.get('/api/i18n/:lang', async (req, res) => res.json(await pack(String(req.params.lang).slice(0, 5))));
 
 app.get('/api/qr', async (req, res) => {
   const text = String(req.query.text || '').slice(0, 500);
@@ -38,7 +41,8 @@ app.post('/api/rooms/:room/audio', express.raw({ type: () => true, limit: '12mb'
   const audio = { data: req.body, mime: (req.headers['content-type'] || 'audio/wav').split(';')[0] };
   if (!audio.data?.length || audio.data.length < 2000) return res.status(400).json({ error: 'empty audio' });
   res.status(202).json({ ok: true });
-  const job = req.query.target === 'ai' ? P.askAIAudio(room, role, audio) : P.speechAudio(room, role, audio);
+  const mode = req.query.mode === 'ptt' ? 'ptt' : 'vad';
+  const job = req.query.target === 'ai' ? P.askAIAudio(room, role, audio) : P.speechAudio(room, role, audio, { mode });
   job.catch((err) => console.error('[audio]', err));
 });
 
@@ -90,6 +94,7 @@ const HANDLERS = {
     room.changed(false);
   },
   bodyPoint: (room, ws, m) => P.bodyPoint(room, m.region, m.point, ws.role),
+  closeImage: (room) => room.state.stage?.tool === 'image' && P.setStage(room, null),
   bodyClear: (room) => {
     if (room.state.stage?.tool === 'body') room.state.stage.points = [];
     room.changed(false);
@@ -111,10 +116,7 @@ const HANDLERS = {
     P.demoStop(room);
     room.newSession(m.patientLang);
   },
-  patientLang: (room, ws, m) => {
-    if (typeof m.lang === 'string' && /^[a-z]{2}$/.test(m.lang)) room.state.patientLang = m.lang;
-    room.changed();
-  },
+  patientLang: (room, ws, m) => P.setPatientLang(room, P.normLang(m.lang), 'doctor'),
   demoNext: (room) => P.demoNext(room),
   demoPlay: (room) => P.demoPlay(room),
   demoStop: (room) => P.demoStop(room),

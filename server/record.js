@@ -25,7 +25,7 @@ function minutesRow(e) {
   const t = esc(clock(e.ts));
   if (e.kind === 'speech') {
     const who = e.speaker === 'doctor' ? 'Doctor' : 'Patient';
-    const flags = [e.iSee && '👍 I see', e.confused && '🤔 not understood'].filter(Boolean).join(' · ');
+    const flags = [e.iSee && 'I see', e.confused && 'not understood'].filter(Boolean).join(' · ');
     return `<tr class="${e.speaker}"><td>${t}</td><td>${who}</td><td>${esc(e.orig.text)}${flags ? `<div class="flag">${flags}</div>` : ''}</td><td>${esc(e.tr?.text || '')}${e.terms?.length ? `<div class="terms">${e.terms.map((x) => `<b>${esc(x.display)}</b>: ${esc(x.explanation)}`).join('<br>')}</div>` : ''}</td></tr>`;
   }
   if (e.kind === 'ai') {

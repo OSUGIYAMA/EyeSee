@@ -2,51 +2,60 @@
 // and help after "I don't understand". Each returns plain JSON the pipeline stores in the minutes.
 import { jsonCall, audioJsonCall, S } from './llm.js';
 import { formatTranscript, explainedTerms, langName } from './transcript.js';
-import { MODELS } from '../../public/shared/catalog.js';
+import { MODELS, LANGUAGES } from '../../public/shared/catalog.js';
 
 // ---------------------------------------------------------------- interpret one utterance
 
 const TERM = S.obj({
   term: S.str('the expression exactly as it appears in the ORIGINAL utterance'),
-  display: S.str("how the term reads in the listener's language (e.g. Japanese medical term, with kana reading for hard kanji)"),
-  explanation: S.str("plain-language explanation in the LISTENER's language, 1–2 short sentences"),
+  display: S.str("how the term is written for the listener (see rules)"),
+  explanation: S.str("plain explanation in the LISTENER's language only, 1–2 short sentences"),
   visual: S.bool('true if a picture would genuinely help (anatomy, devices, procedures)'),
 });
 
 const INTERPRET_FIELDS = {
+  direction: S.enum(['toPatient', 'toDoctor'], "toDoctor if the utterance is in the patient's language, otherwise toPatient"),
   translation: S.str("faithful translation into the listener's language"),
   sourceLanguage: S.str('ISO 639-1 code of the language actually spoken'),
   terms: S.arr(TERM),
-  doctorNote: S.nullable(S.str('patient→doctor only: short note on ambiguity or cultural nuance that matters clinically')),
-  risk: S.nullable(S.obj({ issue: S.str(), suggestion: S.str() }, "doctor→patient only: phrasing that creates consent/liability risk")),
+  doctorNote: S.nullable(S.str('toDoctor only: short note on ambiguity or cultural nuance that matters clinically')),
+  risk: S.nullable(S.obj({ issue: S.str(), suggestion: S.str() }, 'toPatient only: phrasing that creates consent/liability risk')),
 };
 const INTERPRET_SCHEMA = S.obj(INTERPRET_FIELDS);
 const HEAR_SCHEMA = S.obj({
   transcript: S.str('verbatim transcript in the language spoken; empty string if there is no intelligible speech'),
+  background: S.bool('true if this is not the device owner speaking to the other person (distant voices, side conversations, TV, noise, unclear fragments)'),
   ...INTERPRET_FIELDS,
 });
 
-const interpretSystem = (state) => `You are EyeSee's medical interpreter. You sit between a doctor (speaking ${langName(state.doctorLang)}) and a patient whose native language is ${langName(state.patientLang)}, during a real clinical visit. Each request is one new utterance plus recent context.
+const interpretSystem = (state) => {
+  const D = langName(state.doctorLang), P = langName(state.patientLang);
+  return `You are EyeSee's medical interpreter in a live clinical visit between a doctor who speaks ${D} and a patient whose language is ${P}. Each request is one new utterance plus recent context. Other people in the room may also be heard.
 
-1. translation — Translate faithfully into the listener's language. Preserve meaning, numbers, negations, doses, uncertainty and hedges exactly; never add advice, never omit, never soften risks. Natural spoken register. Doctor→patient: keep the medical term the doctor used (in the patient's language) so the patient can recognise it later. Patient→doctor: keep sensory words precise and add the original sound-symbolic word in parentheses in romaji, e.g. "a throbbing (zuki-zuki) headache". If the speaker already used the listener's language (e.g. the patient speaks accented English), return a cleaned-up version, fixing only obvious speech-recognition errors that the context makes certain.
+Decide the direction from the LANGUAGE of the utterance, not from which device recorded it:
+- Utterance in ${P} → direction "toDoctor": translate it into ${D} for the doctor.
+- Utterance in any other language (usually ${D}) → direction "toPatient": translate it into ${P} for the patient.
 
-2. terms — Doctor→patient: up to 4 medical/technical words this patient likely doesn't know; explanation in ${langName(state.patientLang)} at a 12-year-old's level, concrete, 1–2 sentences. Patient→doctor: up to 3 expressions whose nuance is lost in translation (onomatopoeia, idioms, culture-bound or folk-medicine expressions); explanation in English for the doctor. Skip anything listed as already explained. Empty array when nothing needs explaining.
+1. translation — Faithful and complete. Preserve meaning, numbers, negations, doses, uncertainty and hedges exactly; never add advice, never omit, never soften risks. Natural spoken register. toPatient: keep the medical term the doctor used (written in ${P}) so the patient can recognise it later. toDoctor: keep sensory words precise and add the original sound-symbolic word in parentheses, e.g. "a throbbing (zuki-zuki) headache".
 
-3. doctorNote — Patient→doctor only: when the patient's words are ambiguous or culturally loaded in a way that changes clinical meaning or consent (e.g. Japanese 「はい」 can mean "I'm listening", not "I agree"; hedged refusals like 「ちょっと…」; understated pain). One sentence in English, else null. Always null for doctor utterances.
+2. terms — Most utterances need none: return [] for greetings, small talk, logistics and anything non-medical.
+   toPatient: at most 4 genuinely medical or technical terms that appear in the utterance and that an ordinary ${P}-speaking patient may not know (diagnoses, procedures, tests, drugs, anatomy, devices). Never everyday words, names, places or chit-chat. "term" is the term exactly as spoken. "display" is how the term is written in your ${P} translation, in natural ${P} script${state.patientLang === 'ja' ? ' (kanji/katakana; add a hiragana reading in full-width parentheses only for hard kanji, e.g. 狭心症（きょうしんしょう）). Never romaji' : ''}. "explanation" is 1–2 plain, natural ${P} sentences a 12-year-old understands, written only in ${P} — no English words and no romaji (well-known acronyms such as CT or MRI are fine).
+   toDoctor: at most 3 expressions whose nuance is lost in translation (sound-symbolic words like ずきずき, idioms, culture-bound or folk-medicine expressions). "display" is the original plus a romanisation, e.g. ずきずき (zuki-zuki); "explanation" is in ${D} for the doctor.
+   Skip anything listed as already explained.
 
-4. risk — Doctor→patient only: flag phrasing that undermines informed consent or creates liability: guarantees ("nothing will go wrong", "100% safe"), minimising material risks, pressure or coercion, dismissiveness, or dense jargon with no explanation. issue + a better phrasing, in English. Else null. Always null for patient utterances.`;
+3. doctorNote — toDoctor only: when the patient's words are ambiguous or culturally loaded in a way that changes clinical meaning or consent (e.g. Japanese 「はい」 can mean "I'm listening", not "I agree"; hedged refusals like 「ちょっと…」; understated pain). One sentence in ${D}, else null.
+
+4. risk — toPatient only, and only for clinical statements: phrasing that undermines informed consent or creates liability — guarantees ("nothing will go wrong", "100% safe"), minimising material risks, pressure or coercion, or dense jargon with no explanation. issue + a better phrasing, in ${D}. Else null.`;
+};
 
 function interpretPrompt(state, { speaker, text, seq }) {
-  const toPatient = speaker === 'doctor';
-  const from = toPatient ? state.doctorLang : state.patientLang;
-  const to = toPatient ? state.patientLang : state.doctorLang;
-  return `Direction: ${toPatient ? 'DOCTOR → PATIENT' : 'PATIENT → DOCTOR'} (usually ${langName(from)} → translate into ${langName(to)} [${to}])
+  return `Recorded by: the ${speaker === 'doctor' ? "doctor's phone" : "patient's headset (hears only the patient)"}
 Phase: ${state.mode}
 Already explained terms: ${explainedTerms(state).join(', ') || '(none)'}
 Recent conversation (oldest first):
 ${formatTranscript(state, { last: 10 })}
 
-New utterance${seq ? ` (#${seq})` : ''} from the ${speaker.toUpperCase()}:
+New utterance${seq ? ` (#${seq})` : ''}:
 ${text == null ? '(provided as audio — transcribe it verbatim first)' : `"""${text}"""`}`;
 }
 
@@ -68,7 +77,9 @@ export function hearAndInterpret(state, { speaker, audio }) {
   return audioJsonCall({
     system: `${interpretSystem(state)}
 
-The utterance arrives as audio recorded by the ${speaker}'s own device (${speaker === 'doctor' ? 'the doctor\'s phone' : 'the patient\'s headset'}). First transcribe exactly what was said in the language spoken (keep fillers out, keep hesitations that change meaning). If the audio has no intelligible speech (noise, cough, silence), return an empty transcript and empty translation.`,
+The utterance arrives as audio. First transcribe exactly what was said in the language spoken (leave out fillers, keep hesitations that change meaning). Never guess or invent words: if the audio has no intelligible speech (noise, cough, breathing, silence), return an empty transcript and empty translation.
+
+background — EyeSee must never write down things nobody said to the other person. Set background=true when the audio is not the device's owner speaking clearly and directly into this device as part of the doctor–patient conversation: distant or quiet voices, other people's side conversations, TV or announcements, noise, or a fragment too short or unclear to be sure. When in doubt, set background=true.`,
     prompt: interpretPrompt(state, { speaker, text: null }),
     schema: HEAR_SCHEMA,
     audio,
@@ -134,6 +145,7 @@ const MEDIATOR_SCHEMA = S.obj({
   imagePrompt: S.nullable(S.str('prompt for a clean, text-free medical illustration, or null')),
   imageCaption: S.nullable(S.obj({ doctor: S.str(), patient: S.str() })),
   omissions: S.arr(OMISSION()),
+  setPatientLanguage: S.nullable(S.enum(Object.keys(LANGUAGES), "ISO code, only when the patient asks to change the language they read and speak in")),
 });
 
 export function mediate(state, { from, question }) {
@@ -147,6 +159,7 @@ You can:
 - Show a 3D model from the library when it helps: ${modelList}. Heart parts: lv, rv, la, ra, aorta, pulmonary, pulmonary-veins, vena-cava, rca, left-main, lad, lcx, stenosis. Lung parts: trachea, carina, bronchi, right-upper, right-middle, right-lower, left-upper, left-lower, diaphragm. Artery parts: wall, plaque, blood, wire, catheter, balloon, stent. Artery steps: 0 narrowed, 1 wire & catheter, 2 balloon, 3 stent, 4 result.
 - Ask for an illustration (imagePrompt) only when a picture would genuinely help and no 3D model fits. The image must contain NO text or letters (the app adds captions); give a short imageCaption in both languages.
 - Use web search for current factual information when needed.
+- Change the patient's language: if the patient asks to switch language (e.g. "言語をスペイン語にして", "switch to Spanish", or simply asks in another language to read everything in it), set setPatientLanguage to that ISO code and confirm briefly in the NEW language in answerPatient. Otherwise null.
 Keep answers short and concrete.`,
     prompt: `Conversation so far:\n${formatTranscript(state, { last: 40 })}\n\nCurrent phase: ${state.mode}. Understanding score: ${state.understanding.score}/10.\n\nThe ${from.toUpperCase()} asks EyeSee AI:\n"""${question}"""`,
     schema: MEDIATOR_SCHEMA,
@@ -175,6 +188,35 @@ export function helpUnderstand(state, entry) {
   });
 }
 
-/** Illustration prompt for a glossary term (text-free; captions come from the UI). */
+// ---------------------------------------------------------------- illustrations
+
+const ILLUSTRATION_SCHEMA = S.obj({
+  subject: S.str('exactly one subject at one physical scale, described concretely as it really looks'),
+  composition: S.str('camera, framing and what the viewer should notice first'),
+  avoid: S.str('what must not appear, including anything anatomically wrong or out of scale'),
+});
+
+/**
+ * Image models mash several subjects at different scales together (a giant artery across a heart).
+ * So first design one clear, anatomically sensible picture, then render only that.
+ */
+export async function illustrationPrompt({ term, explanation, context }) {
+  const d = await jsonCall({
+    name: 'illustration',
+    system: `You art-direct one illustration for a patient-education leaflet. Choose the single view that best makes the idea obvious to a layperson: ONE subject at ONE physical scale (a whole organ, OR a close-up cutaway of one vessel, OR a device on its own, OR a simple body silhouette showing where something is). Never combine things at different scales, never invent anatomy, never show gore, needles entering skin, or distressing scenes. For procedures, show the device in place in the correct anatomy at a single scale. For concepts (e.g. reduced blood flow), show the physical thing that causes it.`,
+    prompt: `Term: ${term}\nMeaning: ${explanation}\nSaid in this context: ${context || '-'}`,
+    schema: ILLUSTRATION_SCHEMA,
+    effort: 'low',
+    maxTokens: 1200,
+  });
+  return renderPrompt(d);
+}
+
+export const renderPrompt = (d) =>
+  `Patient-education illustration. ${d.subject} ${d.composition}
+Style: calm, precise, modern medical illustration like an Apple Health or Mayo Clinic patient guide; soft studio lighting; natural, muted tissue colours; clean off-white background; the single subject centred with generous margins; nothing else in the frame.
+Avoid: ${d.avoid}. Absolutely no text, letters, numbers, labels, arrows, watermarks or interface elements.`;
+
+/** Fallback prompt when no language model is available. */
 export const termImagePrompt = (term) =>
-  `A clean, friendly medical illustration that helps a patient understand "${term.term}" (${term.explanation}). Soft flat vector style, gentle colors, plain white background, anatomically sensible, no gore. Absolutely no text, letters, numbers or labels anywhere in the image.`;
+  renderPrompt({ subject: `${term.term}: ${term.explanation}`, composition: 'Single clear subject, front view.', avoid: 'multiple subjects at different scales, gore' });

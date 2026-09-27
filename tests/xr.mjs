@@ -44,16 +44,28 @@ await quest.waitForTimeout(600);
 const ui = await quest.evaluate(() => window.__eyesee.uiRoot.position.toArray().map((v) => +v.toFixed(2)));
 check(Math.abs(ui[0] - 0.5) < 0.05 && Math.abs(ui[1] - 1.3) < 0.05, `panels recentered to the head (uiRoot ${ui.join(', ')})`);
 
-// ---- hand poke helper: move the right hand so its index fingertip follows a path
+// ---- hand poke helper: move the right hand so its index fingertip pokes a point along a normal
 await quest.evaluate(() => { window.__xr.primaryInputMode = 'hand'; window.__xr.hands.right.poseId = 'point'; });
 await quest.waitForTimeout(300);
-async function poke(buttonName, holdMs = 400) {
-  return quest.evaluate(async ([name, holdMs]) => {
-    const { THREE, buttons, renderer } = window.__eyesee;
+async function pokeAt(target, holdMs = 400) {
+  return quest.evaluate(async ([target, holdMs]) => {
+    const { THREE, buttons, panels, renderer } = window.__eyesee;
     const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-    const btn = buttons[name];
-    const face = btn.localToWorld(new THREE.Vector3(0, 0, btn.userData.face));
-    const normal = new THREE.Vector3(0, 0, 1).transformDirection(btn.matrixWorld);
+    let face, normal, pressedCheck;
+    if (target.button) {
+      const btn = buttons[target.button];
+      face = btn.localToWorld(new THREE.Vector3(0, 0, btn.userData.face));
+      normal = new THREE.Vector3(0, 0, 1).transformDirection(btn.matrixWorld);
+      pressedCheck = () => btn.scale.x < 0.99;
+    } else {
+      const panel = panels[target.panel];
+      const r = panel.regions.find((x) => x.id === target.region);
+      if (!r) return `no region ${target.region}`;
+      const uv = { x: (r.x + r.w / 2) / panel.W, y: 1 - (r.y + r.h / 2) / panel.H };
+      face = panel.mesh.localToWorld(new THREE.Vector3((uv.x - 0.5) * panel.w, (uv.y - 0.5) * panel.h, 0));
+      normal = new THREE.Vector3(0, 0, 1).transformDirection(panel.mesh.matrixWorld);
+      pressedCheck = () => true;
+    }
     const hand = window.__xr.hands.right;
     const tipOf = () => {
       let best = null;
@@ -71,55 +83,84 @@ async function poke(buttonName, holdMs = 400) {
     const tip = tipOf();
     if (!tip) return 'no fingertip joint';
     const off = tip.clone().sub(new THREE.Vector3(hand.position.x, hand.position.y, hand.position.z));
-    const moveTip = async (target) => { const p = target.clone().sub(off); hand.position.set(p.x, p.y, p.z); await wait(120); };
+    const moveTip = async (p) => { const q = p.clone().sub(off); hand.position.set(q.x, q.y, q.z); await wait(120); };
     await moveTip(face.clone().addScaledVector(normal, 0.06));
     await moveTip(face.clone().addScaledVector(normal, 0.02));
     await moveTip(face.clone().addScaledVector(normal, -0.01));
     await wait(holdMs);
-    const pressed = btn.userData.cap.position.z < 0.01;
+    const pressed = pressedCheck();
     await moveTip(face.clone().addScaledVector(normal, 0.06));
     return pressed ? 'pressed' : 'not pressed';
-  }, [buttonName, holdMs]);
+  }, [target, holdMs]);
 }
 
 const before = (await serverState()).entries.length;
-check((await poke('iSeeBtn')) === 'pressed', 'finger poke depresses the 👍 button');
+check((await pokeAt({ panel: 'toolbar', region: 'isee' })) === 'pressed', 'finger poke on the toolbar “わかった”');
 await quest.waitForTimeout(500);
 const afterISee = await serverState();
-check(afterISee.entries.slice(before).some((e) => e.kind === 'event' && e.event.type === 'isee' && e.speaker === 'patient'), '👍 poke reaches the doctor as “I see”');
+check(afterISee.entries.slice(before).some((e) => e.kind === 'event' && e.event.type === 'isee' && e.speaker === 'patient'), '“わかった” reaches the doctor as “I see”');
 
-// AI button: press-and-hold should flag aiListening while held.
+// AI orb: press-and-hold should flag aiListening while held.
 const holdCheck = quest.evaluate(() => new Promise((r) => { const t = setInterval(() => { if (window.__eyesee.state?.aiListening?.patient) { clearInterval(t); r(true); } }, 50); setTimeout(() => { clearInterval(t); r(false); }, 3000); }));
-check((await poke('aiBtn', 900)) === 'pressed', 'finger poke depresses the ✦ AI button');
-check(await holdCheck, 'holding ✦ AI tells the doctor “patient is asking EyeSee AI”');
+check((await pokeAt({ button: 'aiBtn' }, 900)) === 'pressed', 'finger poke presses the AI orb');
+check(await holdCheck, 'holding the AI orb tells the doctor “patient is asking AI”');
 await quest.waitForTimeout(600);
-check(!(await serverState()).aiListening.patient, 'releasing ✦ AI ends the question');
+check(!(await serverState()).aiListening.patient, 'releasing the AI orb ends the question');
 
-// ---- controller ray: point at the hand panel's "💬 気持ち" button and pull the trigger.
+// ---- controller ray: the doctor opens Feelings; the patient picks one with ray + trigger.
+await phone.evaluate(() => window.__eyesee.link.send({ type: 'stage', stage: { tool: 'feelings' } }));
+await quest.waitForTimeout(900);
 await quest.evaluate(() => { window.__xr.primaryInputMode = 'controller'; });
 await quest.waitForTimeout(300);
-const rayResult = await quest.evaluate(async () => {
-  const { THREE, panels } = window.__eyesee;
+async function rayClick(panelName, regionId, from = [0.3, 1.2, 0.2]) {
+  return quest.evaluate(async ([panelName, regionId, from]) => {
+    const { THREE, panels } = window.__eyesee;
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const panel = panels[panelName];
+    const r = panel.regions.find((x) => x.id === regionId);
+    if (!r) return `no region ${regionId}`;
+    const target = panel.mesh.localToWorld(new THREE.Vector3(((r.x + r.w / 2) / panel.W - 0.5) * panel.w, (0.5 - (r.y + r.h / 2) / panel.H) * panel.h, 0));
+    const c = window.__xr.controllers.right;
+    const o = new THREE.Vector3(...from);
+    c.position.set(o.x, o.y, o.z);
+    const q = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(o, target, new THREE.Vector3(0, 1, 0)));
+    c.quaternion.set(q.x, q.y, q.z, q.w);
+    await wait(250);
+    c.updateButtonValue('trigger', 1);
+    await wait(150);
+    c.updateButtonValue('trigger', 0);
+    await wait(400);
+    return 'ok';
+  }, [panelName, regionId, from]);
+}
+await rayClick('sheet', 'f:anxious');
+await quest.waitForTimeout(500);
+check((await serverState()).entries.some((e) => e.kind === 'event' && e.event.type === 'feeling' && e.event.id === 'anxious'), 'controller ray + trigger picks a feeling on the sheet');
+
+// ---- pinch-drag scroll on the conversation window
+await phone.evaluate(async () => { for (let i = 0; i < 8; i++) window.__eyesee.link.send({ type: 'text', text: `Line ${i}: we will talk about your symptoms and the plan in detail today.` }); });
+await quest.waitForTimeout(1500);
+const scrolled = await quest.evaluate(async () => {
+  const { THREE, panels, scroll } = window.__eyesee;
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-  const work = panels.work;
-  const r = work.regions.find((x) => x.x > 300 && x.x < 600 && x.y > work.H - 200);
-  if (!r) return 'no feelings region';
-  const uv = new THREE.Vector2((r.x + r.w / 2) / work.W, 1 - (r.y + r.h / 2) / work.H);
-  const target = work.mesh.localToWorld(new THREE.Vector3((uv.x - 0.5) * work.w, (uv.y - 0.5) * work.h, 0));
+  const conv = panels.conv;
   const c = window.__xr.controllers.right;
-  const from = new THREE.Vector3(0.62, 1.15, 0.2);
-  c.position.set(from.x, from.y, from.z);
-  const m = new THREE.Matrix4().lookAt(from, target, new THREE.Vector3(0, 1, 0));
-  const q = new THREE.Quaternion().setFromRotationMatrix(m);
-  c.quaternion.set(q.x, q.y, q.z, q.w);
-  await wait(200);
+  const o = new THREE.Vector3(0.3, 1.2, 0.2);
+  c.position.set(o.x, o.y, o.z);
+  const aim = async (v) => {
+    const p = conv.mesh.localToWorld(new THREE.Vector3(0, v * conv.h, 0));
+    const q = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(o, p, new THREE.Vector3(0, 1, 0)));
+    c.quaternion.set(q.x, q.y, q.z, q.w);
+    await wait(60);
+  };
+  await aim(0.2);
   c.updateButtonValue('trigger', 1);
-  await wait(200);
+  for (let k = 0; k <= 10; k++) await aim(0.2 - k * 0.04);
   c.updateButtonValue('trigger', 0);
   await wait(300);
-  return window.__eyesee.workMode;
+  return Math.round(scroll.y);
 });
-check(rayResult === 'feelings', `controller ray + trigger opens the feelings panel (work mode: ${rayResult})`);
+check(scrolled > 40, `pinch-drag scrolls the conversation back (${scrolled}px)`);
 
 // ---- body map: the doctor opens it, the patient points at the chest with the controller ray.
 await phone.evaluate(() => window.__eyesee.link.send({ type: 'stage', stage: { tool: 'body' } }));

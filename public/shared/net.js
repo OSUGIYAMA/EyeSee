@@ -56,9 +56,9 @@ export class Link extends EventTarget {
     return this;
   }
 
-  /** Upload one speech segment. target: 'conversation' | 'ai' */
-  async postAudio(blob, target = 'conversation') {
-    const res = await fetch(`/api/rooms/${encodeURIComponent(this.room)}/audio?role=${this.role}&target=${target}`, {
+  /** Upload one speech segment. target: 'conversation' | 'ai'; mode: 'ptt' (held to talk) | 'vad' (hands-free) */
+  async postAudio(blob, target = 'conversation', mode = 'vad') {
+    const res = await fetch(`/api/rooms/${encodeURIComponent(this.room)}/audio?role=${this.role}&target=${target}&mode=${mode}`, {
       method: 'POST',
       headers: { 'Content-Type': blob.type || 'audio/wav' },
       body: blob,

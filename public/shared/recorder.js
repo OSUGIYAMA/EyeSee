@@ -15,9 +15,13 @@ export class Recorder {
    * @param {(speaking: boolean) => void} [o.onSpeaking]   VAD state (for the live "speaking…" indicator)
    * @param {(level: number) => void} [o.onLevel]          0..1 mic level for meters
    * @param {() => boolean} [o.gate]                       return false to ignore speech starting now
+   * @param {{minRms?:number, factor?:number, minSpeech?:number, agc?:boolean}} [o.vad]
+   *        how loud/long speech must be to count. A headset mic sits next to its wearer's mouth, so it can
+   *        demand a much stronger signal (and skip auto-gain) to ignore other people in the room.
    */
-  constructor({ onSegment, onSpeaking, onLevel, gate }) {
+  constructor({ onSegment, onSpeaking, onLevel, gate, vad = {} }) {
     Object.assign(this, { onSegment, onSpeaking, onLevel, gate });
+    this.vad = { minRms: 0.012, factor: 3.2, minSpeech: MIN_SPEECH, agc: true, ...vad };
     this.vadOn = false; // continuous conversation capture
     this.ptt = false; // push-to-talk capture in progress
     this.ring = new Float32Array(Math.round(RATE * PRE_ROLL));
@@ -35,7 +39,7 @@ export class Recorder {
 
   async init() {
     if (this.ctx) return;
-    this.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
+    this.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: this.vad.agc, channelCount: 1 } });
     const Ctx = window.AudioContext || window.webkitAudioContext;
     this.ctx = new Ctx();
     await this.ctx.audioWorklet.addModule('/shared/pcm-worklet.js');
@@ -63,13 +67,14 @@ export class Recorder {
     if (!on && this.seg && this.seg.target === 'conversation') this.#end(false);
   }
 
-  /** Push-to-talk (EyeSee AI questions). Conversation capture pauses while held. */
-  async pttStart() {
+  /** Push-to-talk. target 'ai' = a question for EyeSee AI; 'conversation' = hold-to-talk speech. */
+  async pttStart(target = 'ai') {
     await this.init();
     await this.resume();
     if (this.seg?.target === 'conversation') this.#end(false);
     this.ptt = true;
-    this.seg = { target: 'ai', chunks: [this.#preRoll()], len: 0, voiced: 1 };
+    this.seg = { target, chunks: [this.#preRoll()], len: 0, voiced: 1, ptt: true };
+    if (target === 'conversation') this.#speaking(true);
   }
 
   pttEnd(send = true) {
@@ -114,7 +119,7 @@ export class Recorder {
     if (this.ptt) return;
 
     // Adaptive noise floor + hysteresis VAD.
-    const threshold = Math.max(0.012, this.noise * 3.2);
+    const threshold = Math.max(this.vad.minRms, this.noise * this.vad.factor);
     const voiced = rms > threshold;
     if (!voiced) this.noise = this.noise * 0.995 + rms * 0.005;
     if (!this.vadOn) return;
@@ -151,12 +156,13 @@ export class Recorder {
     this.voiced = 0;
     if (seg?.target === 'conversation') this.#speaking(false);
     if (!seg || !send) return;
-    if (seg.target === 'conversation' && seg.voiced < MIN_SPEECH) return;
+    if (seg.target === 'conversation' && !seg.ptt && seg.voiced < this.vad.minSpeech) return;
+    if (seg.len < 0.3) return; // an accidental tap
     const total = seg.chunks.reduce((a, c) => a + c.length, 0);
     const pcm = new Float32Array(total);
     let o = 0;
     for (const c of seg.chunks) pcm.set(c, o), (o += c.length);
-    this.onSegment(encodeWav(pcm), { duration: total / RATE, target: seg.target });
+    this.onSegment(encodeWav(pcm), { duration: total / RATE, target: seg.target, mode: seg.ptt ? 'ptt' : 'vad' });
   }
 }
 
