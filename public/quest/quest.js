@@ -1301,8 +1301,20 @@ const rec = new Recorder({
   onLevel: (lv) => (micLevel = lv),
   // The headset mic sits next to the wearer's mouth: demand a clear, close voice and skip auto-gain
   // so other people in the room are not written down.
-  vad: { minRms: 0.018, factor: 3.6, minSpeech: 0.4, agc: true },
+  vad: { minRms: 0.016, factor: 3, minSpeech: 0.4, agc: true, maxThreshold: 0.045, maxNoise: 0.012 },
 });
+
+// Mic watchdog: the headset can suspend audio (entering XR, system overlays, read-aloud). If frames
+// stop arriving while the mic should be on, resume — and if that fails, rebuild the mic.
+setInterval(async () => {
+  if (!micOn || !rec.ready || aiHolding || speakingNow) return;
+  if (rec.ctx.state === 'suspended') await rec.resume().catch(() => {});
+  if (rec.silenceAge > 2.5) {
+    console.warn('[mic] no audio frames for', rec.silenceAge.toFixed(1), 's — restarting the microphone');
+    await rec.restart().catch((e) => console.warn('[mic] restart failed', e));
+  }
+  if (!rec.vadOn) rec.setListening(true).catch(() => {});
+}, 1500);
 
 async function aiStart() {
   if (aiHolding) return;
@@ -1685,7 +1697,7 @@ Promise.race([Promise.all([document.fonts.load('600 32px "Inter"'), document.fon
 
 // Test hooks.
 window.__eyesee = {
-  link, get state() { return S; }, scene, uiRoot, ix, renderer, THREE,
+  link, get state() { return S; }, scene, uiRoot, ix, renderer, THREE, rec, get micOn() { return micOn; },
   buttons: { aiBtn }, panels: { conv, gloss, sheet, toolbar, pic, work: sheet },
   painGrid, get painOrbs() { return painOrbs; }, get stageObj() { return stageObj; }, get workMode() { return S && sheetMode(); },
   scroll: convScroll,

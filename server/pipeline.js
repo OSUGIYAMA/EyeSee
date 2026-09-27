@@ -55,6 +55,7 @@ const PHANTOM = /^(thank you( for watching)?|thanks( for watching)?|you|bye|okay
 export async function speechAudio(room, role, audio, { mode = 'vad' } = {}) {
   const s = room.state;
   if (canHearAudio()) {
+    const kb = Math.round(audio.data.length / 1024);
     // One round trip: transcript + translation + glossary + notes.
     const entry = room.addEntry({ kind: 'speech', speaker: role, orig: { text: '', lang: langOf(s, role) }, tr: null, pending: 'hearing', source: 'voice', terms: [] });
     try {
@@ -64,14 +65,13 @@ export async function speechAudio(room, role, audio, { mode = 'vad' } = {}) {
       // Only a hands-free room mic (the doctor's device) gets the background filter.
       const phantom = mode !== 'ptt' && (PHANTOM.test(text) || (role === 'doctor' && r.background));
       r.sourceLanguage = normLang(r.sourceLanguage);
-      if (!text || phantom || crossTalk(room, role, text, r.sourceLanguage, entry.id)) {
-        if (phantom && text) console.log(`[speech] ignored background/noise from ${role}: "${text.slice(0, 60)}"`);
-        return dropEntry(room, entry.id);
-      }
+      const echo = !!text && !phantom && crossTalk(room, role, text, r.sourceLanguage, entry.id);
+      console.log(`[speech] ${role} ${mode} ${kb}KB → ${!text ? 'no speech' : phantom ? 'ignored (noise/background)' : echo ? 'ignored (same sentence from the other mic)' : 'ok'}${text ? `: "${text.slice(0, 60)}"` : ''}`);
+      if (!text || phantom || echo) return dropEntry(room, entry.id);
       if (await switchedLanguage(room, role, r.sourceLanguage)) r = await interpret(s, { speaker: role, text, seq: entry.seq });
       applyInterpretation(room, entry.id, role, text, r);
     } catch (err) {
-      console.warn('[speech] audio interpretation failed:', err.message);
+      console.warn(`[speech] ${role} ${kb}KB → failed:`, err.message);
       room.updateEntry(entry.id, { pending: false, error: 'speech' });
       room.emit({ type: 'toast', level: 'error', text: { doctor: `Speech failed: ${err.message}`, patient: '音声の処理に失敗しました' } });
     }

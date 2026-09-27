@@ -21,7 +21,7 @@ export class Recorder {
    */
   constructor({ onSegment, onSpeaking, onLevel, gate, vad = {} }) {
     Object.assign(this, { onSegment, onSpeaking, onLevel, gate });
-    this.vad = { minRms: 0.012, factor: 3.2, minSpeech: MIN_SPEECH, agc: true, ...vad };
+    this.vad = { minRms: 0.012, factor: 3.2, minSpeech: MIN_SPEECH, agc: true, maxThreshold: 0.05, maxNoise: 0.012, ...vad };
     this.vadOn = false; // continuous conversation capture
     this.ptt = false; // push-to-talk capture in progress
     this.ring = new Float32Array(Math.round(RATE * PRE_ROLL));
@@ -58,6 +58,27 @@ export class Recorder {
     if (this.ctx?.state === 'suspended') await this.ctx.resume();
   }
 
+  /** Tear down and rebuild the audio graph (used by the watchdog when frames stop arriving). */
+  async restart() {
+    const listening = this.vadOn;
+    try {
+      this.stream?.getTracks().forEach((t) => t.stop());
+      await this.ctx?.close();
+    } catch {}
+    this.ctx = null;
+    this.stream = null;
+    this.seg = null;
+    this.noise = 0.004;
+    await this.init();
+    await this.resume();
+    this.vadOn = listening;
+  }
+
+  /** Seconds since the last audio frame arrived (Infinity before the first). */
+  get silenceAge() {
+    return this.lastFrame ? (performance.now() - this.lastFrame) / 1000 : Infinity;
+  }
+
   async setListening(on) {
     if (on) {
       await this.init();
@@ -92,6 +113,7 @@ export class Recorder {
   }
 
   #frame(input) {
+    this.lastFrame = performance.now();
     // Downsample to 16 kHz (simple decimation with averaging — fine for speech).
     const n = Math.floor(input.length / this.ratio);
     const f = new Float32Array(n);
@@ -119,9 +141,13 @@ export class Recorder {
     if (this.ptt) return;
 
     // Adaptive noise floor + hysteresis VAD.
-    const threshold = Math.max(this.vad.minRms, this.noise * this.vad.factor);
+    // Adaptive noise floor, but with ceilings: in a noisy room (and with auto-gain) the floor must
+    // never creep up to speech level, or clear speech stops triggering.
+    const threshold = Math.max(this.vad.minRms, Math.min(this.noise * this.vad.factor, this.vad.maxThreshold));
     const voiced = rms > threshold;
-    if (!voiced) this.noise = this.noise * 0.995 + rms * 0.005;
+    if (!voiced) this.noise = Math.min(this.vad.maxNoise, this.noise * 0.995 + rms * 0.005);
+    this.lastRms = rms;
+    this.lastThreshold = threshold;
     if (!this.vadOn) return;
 
     if (voiced) {
