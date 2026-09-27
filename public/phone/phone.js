@@ -301,6 +301,7 @@ function renderStage() {
         extra.dataset.for = id;
         extra.dataset.hl = String(st.highlight);
         extra.innerHTML = `<div class="chips">${(obj.parts || []).map((p) => `<button class="chip part ${p.id === st.highlight ? 'on' : ''}" data-part="${p.id}">${esc(p.label.en)}</button>`).join('')}</div>`;
+        extra.querySelector('.chip.on')?.scrollIntoView({ inline: 'center', block: 'nearest' });
       }
     });
     if (st.tool === 'body') {

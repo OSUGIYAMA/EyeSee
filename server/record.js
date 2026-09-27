@@ -4,6 +4,7 @@ import { LANGUAGES } from '../public/shared/catalog.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const time = (iso) => (iso ? new Date(iso).toLocaleString('en-US', { hour12: false }) : '—');
+const clock = (iso) => (iso ? new Date(iso).toLocaleTimeString('en-US', { hour12: false }) : '');
 
 function sparkline(history, threshold) {
   if (!history.length) return '<p class="muted">No scores yet.</p>';
@@ -21,7 +22,7 @@ function sparkline(history, threshold) {
 }
 
 function minutesRow(e) {
-  const t = esc(e.ts.slice(11, 19));
+  const t = esc(clock(e.ts));
   if (e.kind === 'speech') {
     const who = e.speaker === 'doctor' ? 'Doctor' : 'Patient';
     const flags = [e.iSee && '👍 I see', e.confused && '🤔 not understood'].filter(Boolean).join(' · ');
@@ -67,7 +68,7 @@ export function renderRecord(room) {
   <div class="card"><b>Shared understanding</b>${u.score}/10${c?.scoreAtSign != null ? ` (at signing: ${c.scoreAtSign})` : ''}<br><span class="muted">judge: ${esc(u.source || '—')}</span></div>
 </div>
 ${c?.checkpoints?.length ? `<h2>Checkpoints confirmed by the patient</h2><table><tr><th>#</th><th>English</th><th>${esc(lang)}</th><th>Patient</th></tr>
-${c.checkpoints.map((cp, i) => `<tr><td>${i + 1}</td><td>${esc(cp.doctor)}</td><td>${esc(cp.patient)}</td><td>${cp.ack === 'understood' ? `<span class="ok">✓ understood</span>` : cp.ack === 'question' ? `<span class="q">? question</span>` : '—'}<br><span class="muted">${esc(cp.ackTs ? cp.ackTs.slice(11, 19) : '')}</span></td></tr>`).join('')}</table>` : ''}
+${c.checkpoints.map((cp, i) => `<tr><td>${i + 1}</td><td>${esc(cp.doctor)}</td><td>${esc(cp.patient)}</td><td>${cp.ack === 'understood' ? `<span class="ok">✓ understood</span>` : cp.ack === 'question' ? `<span class="q">? question</span>` : '—'}<br><span class="muted">${esc(clock(cp.ackTs))}</span></td></tr>`).join('')}</table>` : ''}
 ${c ? `<h2>EyeSee AI final check</h2>${c.omissions?.length ? `<ul>${c.omissions.map((o) => `<li><b>[${esc(o.severity)}]</b> ${esc(o.doctor)} <span class="muted">/ ${esc(o.patient)}</span></li>`).join('')}</ul>` : '<p>No omissions found.</p>'}${c.overrides?.length ? `<p class="q">The doctor proceeded despite ${c.overrides[0].omissions.length} critical item(s) at ${esc(time(c.overrides[0].ts))}.</p>` : ''}` : ''}
 ${c?.signatures ? `<h2>Signatures</h2><div class="sig">${['patient', 'doctor'].map((r) => (c.signatures[r] ? `<figure><img src="${c.signatures[r].dataUrl}" alt="${r} signature"><figcaption>${r} · ${esc(time(c.signatures[r].ts))}</figcaption></figure>` : '')).join('')}</div>` : ''}
 ${c?.hash ? `<p class="muted">Record SHA-256: <code>${esc(c.hash)}</code></p>` : ''}

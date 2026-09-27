@@ -19,7 +19,7 @@
 <script type="importmap">{"imports":{"three":"/vendor/three/build/three.module.js","three/addons/":"/vendor/three/examples/jsm/"}}</script>
 </head>
 <body>
-<div id="hud"><b>Pain qualities / 痛みの性質</b><span>hover = setActive(true) · query: bg=light, t=&lt;s&gt;, active=&lt;anim|all&gt;</span><span id="stats"></span></div>
+<div id="hud"><b>Pain qualities / 痛みの性質</b><span>hover = setActive(true) · query: bg=light, t=&lt;s&gt;, active=&lt;anim|all&gt;, only=&lt;anim&gt;</span><span id="stats"></span></div>
 <script type="module">
 import * as THREE from 'three';
 import { PAIN_TYPES } from '/shared/catalog.js';
@@ -35,11 +35,13 @@ const scene = new THREE.Scene();
 scene.add(new THREE.HemisphereLight(0xffffff, 0x445566, 1.2));
 const camera = new THREE.PerspectiveCamera(30, innerWidth / innerHeight, 0.1, 100);
 
-const COLS = 5, DX = 2.7, DY = 3.3;
-const items = PAIN_TYPES.map((p, i) => {
+const only = q.get('only');
+const TYPES = only ? PAIN_TYPES.filter((p) => p.anim === only) : PAIN_TYPES;
+const COLS = only ? 1 : 5, ROWS = only ? 1 : 2, DX = 2.7, DY = 3.3;
+const items = TYPES.map((p, i) => {
   const viz = createPainViz(p.anim);
   const col = i % COLS, row = Math.floor(i / COLS);
-  viz.object.position.set((col - (COLS - 1) / 2) * DX, (0.5 - row) * DY + 0.25, 0);
+  viz.object.position.set((col - (COLS - 1) / 2) * DX, ((ROWS - 1) / 2 - row) * DY + 0.25, 0);
   scene.add(viz.object);
   const el = document.createElement('div');
   el.className = 'lbl';
@@ -58,7 +60,7 @@ document.getElementById('stats').textContent = `${items.length} orbs · max ${Ma
 function layout() {
   renderer.setSize(innerWidth, innerHeight);
   camera.aspect = innerWidth / innerHeight;
-  const w = COLS * DX, h = 2 * DY + 0.6;
+  const w = COLS * DX, h = ROWS * DY + 0.6;
   const fitH = h / 2 / Math.tan((camera.fov * Math.PI) / 360);
   const fitW = w / 2 / Math.tan((camera.fov * Math.PI) / 360) / camera.aspect;
   camera.position.set(0, 0, Math.max(fitH, fitW) * 1.02);
