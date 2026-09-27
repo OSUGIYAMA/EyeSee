@@ -27,7 +27,7 @@ export async function speechAudio(room, role, audio) {
     try {
       const r = await hearAndInterpret(s, { speaker: role, audio });
       const text = (r.transcript || '').trim();
-      if (!text || isEcho(room, role, text, entry.id)) return dropEntry(room, entry.id);
+      if (!text || crossTalk(room, role, text, r.sourceLanguage, entry.id)) return dropEntry(room, entry.id);
       applyInterpretation(room, entry.id, role, text, r);
     } catch (err) {
       console.warn('[speech] audio interpretation failed:', err.message);
@@ -97,19 +97,52 @@ function dropEntry(room, id) {
   room.changed();
 }
 
-/** Drop a segment that is the other person's voice picked up by this device's mic. */
-function isEcho(room, role, text, exceptId) {
-  const norm = (t) => t.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/).filter(Boolean);
-  const a = new Set(norm(text));
-  if (a.size < 3) return false;
+// Word tokens for Latin text, character bigrams for CJK — enough to recognise the same sentence.
+function grams(t) {
+  const clean = t.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ');
+  const out = clean.split(/\s+/).filter((w) => w && !/[\u3040-\u9fff]/.test(w));
+  const cjk = clean.replace(/[^\u3040-\u9fff]/g, '');
+  for (let i = 0; i < cjk.length - 1; i++) out.push(cjk.slice(i, i + 2));
+  return out;
+}
+
+/** The same sentence captured by the other device's mic within the last 15 s, if any. */
+function findEcho(room, role, text, exceptId) {
+  const a = new Set(grams(text));
+  if (a.size < 3) return null;
   const since = Date.now() - 15_000;
-  return room.state.entries.some((e) => {
-    if (e.id === exceptId || e.kind !== 'speech' || e.speaker === role || Date.parse(e.ts) < since) return false;
-    const b = norm(e.orig.text);
-    const overlap = b.filter((w) => a.has(w)).length / Math.max(a.size, b.length);
-    return overlap > 0.6;
+  return room.state.entries.find((e) => {
+    if (e.id === exceptId || e.kind !== 'speech' || e.speaker === role || !e.orig.text || Date.parse(e.ts) < since) return false;
+    const b = grams(e.orig.text);
+    return b.filter((w) => a.has(w)).length / Math.max(a.size, b.length) > 0.6;
   });
 }
+
+/**
+ * Each person speaks into their own device, but the phone on the desk can also pick up the patient
+ * (and vice versa). Decide whether this segment is really the other person's voice:
+ *  - the same sentence was already captured by the other device → keep the copy whose spoken
+ *    language matches its device's owner (the phone's copy of Japanese speech loses), else first wins;
+ *  - the doctor's phone heard the patient's language while the headset reported the patient talking.
+ */
+function crossTalk(room, role, text, spokenLang, exceptId) {
+  const s = room.state;
+  const own = langOf(s, role);
+  const echo = findEcho(room, role, text, exceptId);
+  if (echo) {
+    const echoOwn = langOf(s, echo.speaker);
+    if (spokenLang === own && echo.orig.lang !== echoOwn) {
+      dropEntry(room, echo.id); // the earlier copy was the misattributed one
+      return false;
+    }
+    return true;
+  }
+  const other = role === 'doctor' ? 'patient' : 'doctor';
+  const otherLang = langOf(s, other);
+  const otherSpokeRecently = Date.now() - (room.vadAt?.[other] || 0) < 6000;
+  return own !== otherLang && spokenLang === otherLang && otherSpokeRecently;
+}
+const isEcho = (room, role, text) => !!findEcho(room, role, text);
 
 const recentTerms = (s) => s.entries.flatMap((e) => (e.terms || []).map((t) => t.term)).slice(-20).join(', ');
 

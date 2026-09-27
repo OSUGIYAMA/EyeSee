@@ -57,6 +57,7 @@ const HANDLERS = {
   text: (room, ws, m) => P.speechText(room, ws.role, m.text, m.source === 'webspeech' ? 'voice' : 'typed'),
   vad: (room, ws, m) => {
     room.state.speaking[ws.role] = !!m.speaking;
+    (room.vadAt ||= {})[ws.role] = Date.now(); // when each side last started/stopped talking (cross-talk check)
     room.changed(false);
   },
   aiListening: (room, ws, m) => {
