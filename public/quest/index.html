@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>EyeSee · Patient</title>
+<link rel="icon" href="/shared/icon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@500;700;800&display=swap" rel="stylesheet">
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #081018; color: #eef5fb; font: 16px/1.5 "Noto Sans JP", "Hiragino Sans", system-ui, sans-serif; }
+  #stage { position: fixed; inset: 0; }
+  #stage canvas { display: block; touch-action: none; }
+  [hidden] { display: none !important; }
+  .intro { position: fixed; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center; background: radial-gradient(circle at 50% 35%, #12314a, #081018 70%); }
+  .card { width: min(560px, 92vw); text-align: center; padding: 34px 28px; }
+  .eye { width: 74px; height: 74px; margin: 0 auto 14px; border-radius: 50%; background: radial-gradient(circle, #081018 0 26%, #22d3ee 28% 46%, #0f766e 48%); box-shadow: 0 0 60px #22d3ee55; }
+  h1 { margin: 0; font-size: 40px; letter-spacing: 1px; }
+  .tag { color: #9fc3d9; margin: 6px 0 22px; }
+  .steps { text-align: left; background: #ffffff0d; border-radius: 16px; padding: 14px 18px; margin: 0 0 20px; color: #cfe0ec; font-size: 15px; }
+  .steps li { margin: 4px 0; }
+  button { font: inherit; cursor: pointer; border: 0; }
+  .big { display: block; width: 100%; padding: 16px; border-radius: 16px; font-size: 20px; font-weight: 800; margin-top: 10px; background: linear-gradient(135deg, #14b8a6, #0e7490); color: #fff; box-shadow: 0 10px 30px #14b8a655; }
+  .big.alt { background: #ffffff14; box-shadow: none; }
+  .small { color: #8fa9bd; font-size: 13px; margin-top: 16px; }
+  .status { margin-top: 14px; font-size: 14px; color: #9fc3d9; }
+  .desk { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 4; display: flex; gap: 8px; align-items: center; background: #0c1621e6; border: 1px solid #ffffff22; border-radius: 16px; padding: 8px; width: min(760px, 94vw); }
+  .desk input { flex: 1; font: inherit; padding: 10px 12px; border-radius: 10px; border: 1px solid #ffffff22; background: #ffffff0f; color: #fff; }
+  .desk button { padding: 10px 12px; border-radius: 10px; background: #ffffff14; color: #fff; font-weight: 700; white-space: nowrap; }
+  .desk button.on { background: #0f766e; }
+  .hint { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); z-index: 4; font-size: 12.5px; color: #9fb2c4; background: #0c1621cc; padding: 6px 12px; border-radius: 10px; }
+</style>
+<script type="importmap">{"imports":{"three":"/vendor/three/build/three.module.js","three/addons/":"/vendor/three/examples/jsm/"}}</script>
+</head>
+<body>
+<div id="stage"></div>
+
+<section id="intro" class="intro">
+  <div class="card">
+    <div class="eye"></div>
+    <h1>EyeSee</h1>
+    <p class="tag">See what your doctor means. — 医師の言葉が、わかる。</p>
+    <ol class="steps">
+      <li>いつもの言葉で話してください。医師には英語で伝わります。</li>
+      <li>医師の話は、目の前に日本語で表示されます。</li>
+      <li>わからない時は 🤔 ボタン、わかったら 👍 ボタン。</li>
+      <li>AIに聞きたい時は、右手前の ✦ ボタンを押しながら話します。</li>
+    </ol>
+    <button id="startBtn" class="big">はじめる（マイクを許可）</button>
+    <div id="xrBtns" hidden>
+      <button id="arBtn" class="big" hidden>ARで開始（まわりが見えます）</button>
+      <button id="vrBtn" class="big alt" hidden>VRで開始</button>
+      <button id="deskBtn" class="big alt">この画面で使う（プレビュー）</button>
+    </div>
+    <div id="status" class="status"></div>
+    <p class="small">Room <b id="roomName"></b> · The doctor's phone and this headset share one live transcript.</p>
+  </div>
+</section>
+
+<div id="hint" class="hint" hidden>ドラッグで見回す · クリックで操作 · Space長押しでAIに質問</div>
+<form id="desk" class="desk" hidden>
+  <button type="button" id="micToggle" class="on">🎙 ON</button>
+  <input id="deskInput" placeholder="患者として入力（例：胸が痛いです）…" autocomplete="off">
+  <button>送信</button>
+  <button type="button" id="enterXR" hidden>🥽 XR</button>
+</form>
+
+<script type="module" src="/quest/quest.js"></script>
+</body>
+</html>

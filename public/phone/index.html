@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
+<meta name="theme-color" content="#0b1f2e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>EyeSee · Doctor</title>
+<link rel="manifest" href="/phone/manifest.webmanifest">
+<link rel="icon" href="/shared/icon.svg">
+<link rel="stylesheet" href="/phone/phone.css">
+<script type="importmap">{"imports":{"three":"/vendor/three/build/three.module.js","three/addons/":"/vendor/three/examples/jsm/"}}</script>
+</head>
+<body>
+<div id="app">
+  <header class="top">
+    <div class="brand"><span class="eye" aria-hidden="true"></span><b>EyeSee</b></div>
+    <button id="linkPill" class="pill" aria-label="Headset connection"><i class="dot"></i><span>Headset</span></button>
+    <button id="menuBtn" class="icon-btn" aria-label="Menu">⋯</button>
+  </header>
+
+  <nav id="modes" class="modes" role="tablist"></nav>
+
+  <section id="meter" class="meter" hidden>
+    <button id="meterBar" class="meter-bar" aria-expanded="false">
+      <span class="meter-label">Shared understanding</span>
+      <span class="meter-cells" id="meterCells"></span>
+      <b id="meterScore">0</b><small>/10</small>
+    </button>
+    <div id="meterDetail" class="meter-detail" hidden></div>
+    <button id="consentBtn" class="consent-btn" disabled>Consent unlocks at 8</button>
+  </section>
+
+  <main id="feed" class="feed" aria-live="polite"></main>
+  <div id="live" class="live" hidden></div>
+
+  <section id="stage" class="stage" hidden>
+    <div class="stage-head"><b id="stageTitle"></b><span id="stageSub" class="muted"></span><button id="stageClose" class="icon-btn" aria-label="Close">✕</button></div>
+    <div id="stageBody" class="stage-body"></div>
+  </section>
+
+  <footer class="dock">
+    <div class="tools" id="tools">
+      <button data-tool="pain"><span>🩹</span>Pain</button>
+      <button data-tool="body"><span>🧍</span>Body</button>
+      <button data-tool="feelings"><span>💬</span>Feelings</button>
+      <button data-tool="models"><span>🫀</span>3D</button>
+    </div>
+    <div class="controls">
+      <button id="kbdBtn" class="round small" aria-label="Type">⌨︎</button>
+      <button id="micBtn" class="mic" aria-pressed="false"><span class="ring"></span><span class="mic-ico">🎙</span><span id="micLabel">Tap to listen</span></button>
+      <button id="aiBtn" class="round ai" aria-label="Hold to ask EyeSee AI"><span>✦</span><small>AI</small></button>
+    </div>
+    <form id="typeForm" class="type-form" hidden>
+      <input id="typeInput" autocomplete="off" placeholder="Type what you want to say…" enterkeyhint="send">
+      <button class="send">Send</button>
+    </form>
+  </footer>
+</div>
+
+<div id="sheet" class="sheet" hidden><div class="sheet-card"><div id="sheetBody"></div></div></div>
+<div id="toast" class="toast" hidden></div>
+<div id="aiOverlay" class="ai-overlay" hidden><div class="orb"></div><p>Listening… release to ask EyeSee AI</p></div>
+
+<script type="module" src="/phone/phone.js"></script>
+</body>
+</html>

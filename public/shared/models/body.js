@@ -184,49 +184,65 @@ const worldToFoot = (x, y, z, out) => {
   return out;
 };
 
+// The figure is one SDF, polygonised on several grids (fine for head / hands / feet). Each grid
+// keeps the triangles on its side of these planes plus a small overlap; since all grids sample
+// the same surface with the same normals, the overlap is invisible.
+const headPlane = (y, z) => y - (1.49 - 0.5 * z);                  // > 0 → head grid
+const wristPlane = (ax, y, z) => (ax - WR[0]) * DIR_F[0] + (y - WR[1]) * DIR_F[1] + (z - WR[2]) * DIR_F[2]; // > 0 → hand
+const HAND_C = handToWorld([0.005, -0.075, 0.01]);
+const nearHand = (ax, y, z) => { const dx = ax - HAND_C[0], dy = y - HAND_C[1], dz = z - HAND_C[2]; return dx * dx + dy * dy + dz * dz < 0.0225; };
+const ANKLE_Y = 0.12;                                             // below → foot grid
+const isHand = (ax, y, z) => ax > 0.28 && nearHand(ax, y, z) && wristPlane(ax, y, z) > 0;
+// head / hands / feet are decided purely by position (so overlapping grids agree)
+const zoneSeg = (x, y, z) => {
+  const ax = Math.abs(x);
+  if (headPlane(y, z) > 0) return 'head';
+  if (isHand(ax, y, z)) return x >= 0 ? 'hand-left' : 'hand-right';
+  if (y < ANKLE_Y) return x >= 0 ? 'foot-left' : 'foot-right';
+  return null;
+};
+
 // ---------------------------------------------------------------------------------------
 // Body SDF (torso + neck + arms + legs). Symmetric: evaluated on |x|.
 // Groups: 0 torso, 1 neck, 2 arm, 3 leg  (side comes from the sign of x)
 // ---------------------------------------------------------------------------------------
 function buildBodySDF() {
   const torso = blend([
-    [ellipsoid([0, 1.235, -0.005], [0.147, 0.19, 0.102]), 0],             // rib cage
+    [ellipsoid([0, 1.235, -0.005], [0.145, 0.19, 0.102]), 0],             // rib cage
     [ellipsoid([0, 1.338, -0.018], [0.168, 0.07, 0.083]), 0.05],          // shoulder girdle
-    [ellipsoid([0, 1.045, 0.004], [0.131, 0.16, 0.091]), 0.06],           // abdomen
+    [ellipsoid([0, 1.045, 0.004], [0.122, 0.16, 0.09]), 0.06],            // abdomen
     [ellipsoid([0, 0.952, 0.02], [0.12, 0.085, 0.08]), 0.05],             // lower belly
-    [ellipsoid([0, 0.905, -0.008], [0.155, 0.112, 0.096]), 0.06],         // pelvis
+    [ellipsoid([0, 0.9, -0.008], [0.158, 0.112, 0.096]), 0.06],           // pelvis
     [ellipsoid([0.064, 0.868, -0.046], [0.077, 0.095, 0.074]), 0.04],     // buttock
     [ellipsoid([0.066, 1.268, 0.04], [0.073, 0.058, 0.05]), 0.045],       // pectoral (subtle)
     [capsule([0.0, 1.418, -0.03], [0.14, 1.387, -0.027], 0.041), 0.05],   // trapezius
     [ellipsoid([0.072, 1.225, -0.045], [0.074, 0.14, 0.058]), 0.05],      // scapula / lats
   ]);
-  const neckCone = roundCone([0, 1.36, -0.022], [0, 1.535, -0.008], 0.058, 0.051);
-  const cutN = nrm([0, 1, 0.33]);
-  const neck = (x, y, z) => smax(neckCone(x, y, z), (y - 1.50) * cutN[1] + z * cutN[2], 0.003);
+  const neck = roundCone([0, 1.36, -0.022], [0, 1.535, -0.008], 0.058, 0.051);
 
   const armFr = frame(DIR_U, [1, 0, 0]);
   const foreFr = frame(DIR_F, H_N); // u ≈ palm normal, w ≈ thumb axis
   const armRaw = blend([
-    [ellipsoid(add(SH, [0.006, -0.014, 0.0]), [0.049, 0.078, 0.052], armFr), 0],   // deltoid
+    [ellipsoid(add(SH, [0.004, -0.016, 0.0]), [0.047, 0.078, 0.051], armFr), 0],   // deltoid
     [roundCone(SH, EL, 0.043, 0.033), 0.03],
     [ellipsoid(add(lerp3(SH, EL, 0.5), [0, 0, 0.004]), [0.04, 0.11, 0.043], armFr), 0.03], // biceps / triceps
     [sphere(EL, 0.034), 0.02],
     [roundCone(EL, WR, 0.035, 0.0245, H_N, 0.74), 0.02],
     [ellipsoid(add(EL, mul(DIR_F, 0.075)), [0.035, 0.1, 0.042], foreFr), 0.03],     // forearm muscles
   ]);
-  const arm = (x, y, z) => smax(armRaw(x, y, z), (x - WR[0]) * DIR_F[0] + (y - WR[1]) * DIR_F[1] + (z - WR[2]) * DIR_F[2], 0.003);
+  const arm = armRaw;
 
   const legFr = frame(sub(KNEE, HIP), [1, 0, 0]);
   const shinFr = frame(sub(ANK, KNEE), [1, 0, 0]);
   const legRaw = blend([
-    [roundCone(HIP, KNEE, 0.083, 0.052), 0],
+    [roundCone(HIP, KNEE, 0.083, 0.056), 0],
     [ellipsoid(add(lerp3(HIP, KNEE, 0.4), [0.004, 0, 0.01]), [0.074, 0.19, 0.074], legFr), 0.05], // quadriceps
-    [sphere(KNEE, 0.051), 0.03],
-    [ellipsoid(add(KNEE, [0, 0.006, 0.043]), [0.027, 0.031, 0.017]), 0.02],                      // kneecap
+    [sphere(KNEE, 0.045), 0.03],
+    [ellipsoid(add(KNEE, [0, 0.01, 0.04]), [0.025, 0.029, 0.014]), 0.03],                        // kneecap
     [roundCone(KNEE, ANK, 0.049, 0.031), 0.03],
     [ellipsoid(add(lerp3(KNEE, ANK, 0.27), [0.003, 0, -0.024]), [0.047, 0.115, 0.047], shinFr), 0.04], // calf
   ]);
-  const leg = (x, y, z) => smax(legRaw(x, y, z), 0.105 - y, 0.003);
+  const leg = legRaw;
 
   const g = new Float64Array(4);
   const sdf = (x, y, z) => {
@@ -242,52 +258,56 @@ function buildBodySDF() {
   return sdf;
 }
 
+// egg-shaped head: an ellipsoid whose width / depth narrow and whose centre moves forward
+// below the eye line, so skull, cheeks and jaw form one smooth shape (no mask-like crease)
+function eggHead() {
+  const cy = 1.594, ry = 0.109;
+  return (x, y, z) => {
+    let u = (cy - y) / ry; u = u < 0 ? 0 : u > 1 ? 1 : u;
+    const u2 = u * u;
+    const rx = 0.074 - 0.017 * u2, rz = 0.097 - 0.04 * u2, zc = 0.004 + 0.04 * u2;
+    const a = x / rx, b = (y - cy) / ry, c = (z - zc) / rz;
+    const k0 = Math.sqrt(a * a + b * b + c * c);
+    const k1 = Math.sqrt(a * a / (rx * rx) + b * b / (ry * ry) + c * c / (rz * rz));
+    return k1 < 1e-12 ? -0.05 : (k0 * (k0 - 1)) / k1;
+  };
+}
 function buildHeadSDF() {
   const earFr = frame([0, Math.cos(14 * deg), -Math.sin(14 * deg)], [1, 0, 0]);
   const parts = blend([
-    [ellipsoid([0, 1.612, -0.012], [0.077, 0.092, 0.097]), 0],                  // cranium
-    [ellipsoid([0, 1.558, 0.022], [0.061, 0.078, 0.072]), 0.045],               // face mass
-    [capsule([0.047, 1.522, -0.008], [0.02, 1.483, 0.058], 0.017), 0.025],       // jaw
-    [ellipsoid([0, 1.481, 0.07], [0.021, 0.019, 0.018]), 0.02],                 // chin
-    [sphere([0.041, 1.571, 0.057], 0.021), 0.025],                              // cheekbone
-    [capsule([0, 1.607, 0.083], [0.04, 1.609, 0.071], 0.012), 0.018],           // brow
+    [eggHead(), 0],
+    [ellipsoid([0, 1.494, 0.064], [0.022, 0.017, 0.019]), 0.03],                // chin
+    [ellipsoid([0, 1.528, 0.068], [0.024, 0.016, 0.016]), 0.03],                // lips (very soft)
+    [sphere([0.042, 1.572, 0.05], 0.017), 0.04],                                // cheekbone
+    [capsule([0, 1.608, 0.08], [0.036, 1.609, 0.071], 0.0095), 0.024],          // brow
   ]);
-  const socket = sphere([0.031, 1.588, 0.094], 0.0165);
-  const lid = ellipsoid([0.031, 1.586, 0.081], [0.016, 0.012, 0.011]);
-  const nose = roundCone([0, 1.603, 0.088], [0, 1.556, 0.107], 0.0075, 0.011);
-  const ala = sphere([0.012, 1.555, 0.097], 0.0085);
-  const lips = ellipsoid([0, 1.522, 0.087], [0.021, 0.0085, 0.009]);
-  const ear = ellipsoid([0.077, 1.585, -0.01], [0.011, 0.031, 0.019], earFr);
-  const stub = roundCone([0, 1.41, -0.018], [0, 1.535, -0.008], 0.0535, 0.0485);
+  const socket = ellipsoid([0.03, 1.589, 0.093], [0.018, 0.011, 0.012]);
+  const nose = roundCone([0, 1.599, 0.086], [0, 1.56, 0.1], 0.0058, 0.0088);
+  const ala = sphere([0.009, 1.559, 0.092], 0.007);
+  const ear = ellipsoid([0.073, 1.585, -0.012], [0.0092, 0.026, 0.016], earFr);
   return (x, y, z) => {
     const ax = x < 0 ? -x : x;
     let d = parts(ax, y, z);
-    d = smax(d, -socket(ax, y, z), 0.012);
-    d = smin(d, lid(ax, y, z), 0.006);
+    d = smax(d, -socket(ax, y, z), 0.016);
     d = smin(d, nose(ax, y, z), 0.012);
     d = smin(d, ala(ax, y, z), 0.008);
-    d = smin(d, lips(ax, y, z), 0.008);
-    d = smin(d, ear(ax, y, z), 0.008);
-    return smin(d, stub(ax, y, z), 0.03);
+    return smin(d, ear(ax, y, z), 0.01);
   };
 }
 
 function buildHandSDF() {
-  // wrist stub: sits ~1.5 mm inside the forearm and continues the flattened wrist section
-  const stub = roundCone([0, 0.05, 0], [0, 0, 0], 0.0228, 0.0228, [0, 0, 1], 0.74);
   const palm = blend([
     [roundBox([0, -0.05, 0.001], [0.029, 0.036, 0.0035], 0.0105), 0],
-    [stub, 0.025],
     [ellipsoid([0.021, -0.037, 0.009], [0.017, 0.026, 0.012]), 0.016],      // thenar
     [ellipsoid([-0.026, -0.053, 0.005], [0.011, 0.034, 0.011]), 0.012],     // hypothenar
   ]);
   const fingers = [];
   // [x, y, spread°, [phalanx lengths], [flex° MCP, PIP, DIP], radius scale]
   const defs = [
-    [0.027, -0.093, 5, [0.039, 0.023, 0.019], [8, 16, 10], 1.0],
-    [0.009, -0.095, 1, [0.043, 0.026, 0.021], [10, 20, 12], 1.02],
-    [-0.009, -0.093, -3, [0.041, 0.025, 0.02], [12, 24, 14], 0.97],
-    [-0.026, -0.087, -8, [0.031, 0.019, 0.018], [15, 28, 15], 0.85],
+    [0.027, -0.093, 7, [0.04, 0.024, 0.019], [8, 16, 10], 0.97],
+    [0.009, -0.095, 1.5, [0.044, 0.027, 0.021], [10, 20, 12], 1.0],
+    [-0.009, -0.093, -4, [0.042, 0.026, 0.02], [12, 24, 14], 0.95],
+    [-0.026, -0.087, -10, [0.032, 0.02, 0.018], [15, 28, 15], 0.83],
   ];
   for (const [fx, fy, spread, lens, flex, rs] of defs) {
     let p = [fx, fy, 0.0], th = 0;
@@ -309,29 +329,26 @@ function buildHandSDF() {
     let d = palm(x, y, z);
     let t = smin(smin(thumb[0](x, y, z), thumb[1](x, y, z), 0.004), thumb[2](x, y, z), 0.004);
     d = smin(d, t, 0.018);
-    for (let i = 0; i < 4; i++) d = smin(d, fingers[i](x, y, z), 0.011);
-    return d;
+    let fu = fingers[0](x, y, z);
+    for (let i = 1; i < 4; i++) fu = Math.min(fu, fingers[i](x, y, z));
+    return smin(d, fu, 0.011);
   };
 }
 
 function buildFootSDF() {
-  // ankle stub follows the shin axis, ~2 mm inside the leg surface
-  const toC = (p) => worldToFoot(p[0], p[1], p[2], [0, 0, 0]);
-  const tTop = (KNEE[1] - 0.175) / (KNEE[1] - ANK[1]);
-  const stubTop = toC(lerp3(KNEE, ANK, tTop)), stubBot = toC(ANK);
-  const stub = roundCone(stubTop, stubBot, 0.0295, 0.0295);
+  const toeFr = frame([0, 0, 1], [Math.cos(10 * deg), 0, Math.sin(10 * deg)]);
   const foot = blend([
-    [roundCone([0, 0.095, -0.008], [0, 0.055, -0.002], 0.031, 0.034), 0],
-    [sphere([0.021, 0.071, -0.011], 0.015), 0.012],                          // lateral malleolus
-    [sphere([-0.018, 0.08, -0.004], 0.015), 0.012],                          // medial malleolus
-    [ellipsoid([0, 0.036, -0.029], [0.031, 0.036, 0.036]), 0.025],          // heel
-    [roundCone([0, 0.042, -0.012], [-0.002, 0.026, 0.118], 0.034, 0.025), 0.025],
-    [ellipsoid([-0.004, 0.052, 0.045], [0.034, 0.03, 0.068]), 0.025],       // instep
-    [ellipsoid([-0.003, 0.024, 0.121], [0.045, 0.024, 0.038]), 0.025],      // ball of the foot
-    [roundCone([-0.024, 0.021, 0.147], [-0.027, 0.017, 0.177], 0.0135, 0.0118), 0.01], // big toe
-    [ellipsoid([0.014, 0.0155, 0.162], [0.029, 0.0135, 0.026]), 0.01],      // small toes
+    [roundCone([0, 0.1, 0], [0, 0.055, -0.004], 0.0325, 0.035), 0],
+    [sphere([0.02, 0.07, -0.008], 0.014), 0.012],                            // lateral malleolus
+    [sphere([-0.017, 0.079, -0.002], 0.014), 0.012],                         // medial malleolus
+    [ellipsoid([0, 0.036, -0.027], [0.031, 0.036, 0.036]), 0.025],          // heel
+    [roundCone([0, 0.042, -0.012], [-0.003, 0.024, 0.118], 0.034, 0.024), 0.025],
+    [ellipsoid([-0.004, 0.05, 0.045], [0.034, 0.03, 0.07]), 0.03],          // instep
+    [ellipsoid([-0.004, 0.022, 0.125], [0.043, 0.022, 0.045]), 0.03],       // ball of the foot
+    [ellipsoid([-0.005, 0.016, 0.16], [0.034, 0.013, 0.032], toeFr), 0.03], // toes
+    [roundCone([-0.022, 0.019, 0.148], [-0.024, 0.016, 0.177], 0.0122, 0.011), 0.02], // big toe
   ]);
-  return (x, y, z) => smax(smin(foot(x, y, z), stub(x, y, z), 0.02), -y, 0.006);
+  return foot;
 }
 
 // ---------------------------------------------------------------------------------------
@@ -522,48 +539,75 @@ function regionOf(x, y, z, seg) {
 // ---------------------------------------------------------------------------------------
 // Shared resources (built once, reused by every create())
 // ---------------------------------------------------------------------------------------
+// the whole figure as one SDF. group(): 0 torso 1 neck 2 arm 3 leg 4 head 5 hand 6 foot
+function buildFigureSDF() {
+  const body = buildBodySDF(), head = buildHeadSDF(), hand = buildHandSDF(), foot = buildFootSDF();
+  const c = [0, 0, 0];
+  let grp = 0;
+  const G = (x, y, z) => {
+    const ax = x < 0 ? -x : x;
+    let d = body(ax, y, z);
+    grp = body.group();
+    if (y > 1.4) { const h = head(ax, y, z); if (h < d) grp = 4; d = smin(d, h, 0.03); }
+    if (ax > 0.28 && y > 0.6 && y < 0.99) { worldToHand(ax, y, z, c); const h = hand(c[0], c[1], c[2]); if (h < d) grp = 5; d = smin(d, h, 0.016); }
+    if (y < 0.2) { worldToFoot(ax, y, z, c); const f = foot(c[0], c[1], c[2]); if (f < d) grp = 6; d = smax(smin(d, f, 0.02), -y, 0.006); }
+    return d;
+  };
+  G.group = () => grp;
+  // coarse segment of a point near the surface
+  G.seg = (x, y, z) => {
+    const zs = zoneSeg(x, y, z);
+    if (zs) return zs;
+    G(x, y, z);
+    return grp === 0 ? 'torso' : grp === 1 || grp === 4 ? 'neck' : grp === 2 || grp === 5 ? `arm-${side(x)}` : `leg-${side(x)}`;
+  };
+  return G;
+}
+
 let BUILT = null;
 function build() {
   if (BUILT) return BUILT;
-  const bodySDF = buildBodySDF(), headSDF = buildHeadSDF(), handSDF = buildHandSDF(), footSDF = buildFootSDF();
+  const G = buildFigureSDF();
+  const M = 0.0015; // overlap margin between grids
   const surfaces = [];
+  // keep a triangle if any of its vertices is on this grid's side of the clip planes
+  const addSurf = (m, keep, vsegFn, iters) => surfaces.push({ ...m, keep, vsegFn, iters });
 
-  // body: one blended surface, split into coarse segments by the dominant SDF group
+  addSurf(polygonize(G, [-0.45, 0.075, -0.17], [0.45, 1.575, 0.16], 0.013),
+    (x, y, z) => { const ax = Math.abs(x); return headPlane(y, z) < M && y > ANKLE_Y - M && !(ax > 0.28 && nearHand(ax, y, z) && wristPlane(ax, y, z) > M); },
+    (x, y, z) => { G(x, y, z); const g = G.group(); return g === 0 ? 'torso' : g === 1 || g === 4 ? 'neck' : g === 2 || g === 5 ? `arm-${side(x)}` : `leg-${side(x)}`; }, 2);
+  addSurf(polygonize(G, [-0.098, 1.42, -0.125], [0.098, 1.72, 0.13], 0.005), (x, y, z) => headPlane(y, z) > -M, () => 'head', 4);
   {
-    const m = polygonize(bodySDF, [-0.43, 0.085, -0.17], [0.43, 1.575, 0.16], 0.0125);
-    const vseg = new Uint8Array(m.vcount);
-    for (let v = 0; v < m.vcount; v++) {
-      const x = m.pos[3 * v];
-      bodySDF(x, m.pos[3 * v + 1], m.pos[3 * v + 2]);
-      const gr = bodySDF.group();
-      vseg[v] = gr === 0 ? SIDX.torso : gr === 1 ? SIDX.neck : gr === 2 ? (x >= 0 ? SIDX['arm-left'] : SIDX['arm-right']) : (x >= 0 ? SIDX['leg-left'] : SIDX['leg-right']);
-    }
-    surfaces.push({ ...m, vseg, split: true, iters: 2 });
-  }
-  {
-    const m = polygonize(headSDF, [-0.098, 1.35, -0.125], [0.098, 1.72, 0.13], 0.0055);
-    surfaces.push({ ...m, vseg: new Uint8Array(m.vcount).fill(SIDX.head), iters: 4 });
-  }
-  {
-    const c = polygonize(handSDF, [-0.052, -0.2, -0.04], [0.078, 0.06, 0.075], 0.0042);
+    const hw = (x, y, z) => { const p = handToWorld([x, y, z]); return G(p[0], p[1], p[2]); };
+    const c = polygonize(hw, [-0.052, -0.2, -0.04], [0.078, 0.04, 0.075], 0.0047);
     const L = placeMesh(c, handToWorld, false), R = mirrorMesh(L);
-    surfaces.push({ ...L, vseg: new Uint8Array(L.vcount).fill(SIDX['hand-left']), iters: 5 });
-    surfaces.push({ ...R, vseg: new Uint8Array(R.vcount).fill(SIDX['hand-right']), iters: 5 });
+    const keep = (x, y, z) => wristPlane(Math.abs(x), y, z) > -M;
+    addSurf(L, keep, () => 'hand-left', 5);
+    addSurf(R, keep, () => 'hand-right', 5);
   }
   {
-    const c = polygonize(footSDF, [-0.07, -0.01, -0.08], [0.07, 0.19, 0.205], 0.006);
+    const fw = (x, y, z) => { const p = footToWorld([x, y, z]); return G(p[0], p[1], p[2]); };
+    const c = polygonize(fw, [-0.07, -0.01, -0.08], [0.07, 0.16, 0.205], 0.007);
     const L = placeMesh(c, footToWorld, false), R = mirrorMesh(L);
-    surfaces.push({ ...L, vseg: new Uint8Array(L.vcount).fill(SIDX['foot-left']), iters: 3 });
-    surfaces.push({ ...R, vseg: new Uint8Array(R.vcount).fill(SIDX['foot-right']), iters: 3 });
+    const keep = (x, y) => y < ANKLE_Y + M;
+    addSurf(L, keep, () => 'foot-left', 3);
+    addSurf(R, keep, () => 'foot-right', 3);
   }
 
-  // per-vertex region + breathing weights, adjacency
+  // per-vertex segment / region / breathing weights / keep flag, adjacency
   for (const s of surfaces) {
+    s.vseg = new Uint8Array(s.vcount);   // coarse segment used to split meshes (partId)
+    s.vsegR = new Uint8Array(s.vcount);  // coarse segment used for regions / highlight
     s.vreg = new Uint8Array(s.vcount);
+    s.vkeep = new Uint8Array(s.vcount);
     s.breath = new Float32Array(s.vcount * 2);
     for (let v = 0; v < s.vcount; v++) {
       const x = s.pos[3 * v], y = s.pos[3 * v + 1], z = s.pos[3 * v + 2];
-      s.vreg[v] = RIDX[regionOf(x, y, z, SEGMENTS[s.vseg[v]])];
+      s.vseg[v] = SIDX[s.vsegFn(x, y, z)];
+      const segR = G.seg(x, y, z);
+      s.vsegR[v] = SIDX[segR];
+      s.vreg[v] = RIDX[regionOf(x, y, z, segR)];
+      s.vkeep[v] = s.keep(x, y, z) ? 1 : 0;
       const ax = Math.abs(x);
       s.breath[2 * v] = sstep(0.93, 1.06, y) * (1 - sstep(1.27, 1.40, y)) * (1 - sstep(0.15, 0.2, ax)); // chest/belly swell
       s.breath[2 * v + 1] = Math.max(sstep(1.10, 1.38, y), y > 0.6 ? sstep(0.19, 0.25, ax) : 0);      // shoulders/arms/head lift
@@ -571,33 +615,33 @@ function build() {
     s.adj = adjacency(s.idx, s.vcount);
   }
 
-  // geometries: split the body surface into coarse segment meshes
+  // geometries: clip to each grid's side, split into coarse segment meshes
   const pieces = [];
   for (const s of surfaces) {
-    if (!s.split) { pieces.push({ surf: s, seg: SEGMENTS[s.vseg[0]], map: null, idx: s.idx }); continue; }
     const buckets = new Map();
     for (let t = 0; t < s.idx.length; t += 3) {
-      const a = s.vseg[s.idx[t]], b = s.vseg[s.idx[t + 1]], c = s.vseg[s.idx[t + 2]];
+      const i0 = s.idx[t], i1 = s.idx[t + 1], i2 = s.idx[t + 2];
+      if (!s.vkeep[i0] && !s.vkeep[i1] && !s.vkeep[i2]) continue;
+      const a = s.vseg[i0], b = s.vseg[i1], c = s.vseg[i2];
       const g = a === b || a === c ? a : b === c ? b : a;
       if (!buckets.has(g)) buckets.set(g, []);
-      buckets.get(g).push(s.idx[t], s.idx[t + 1], s.idx[t + 2]);
+      buckets.get(g).push(i0, i1, i2);
     }
     for (const [g, tri] of buckets) {
-      const remap = new Map(), map = [];
+      const remap = new Int32Array(s.vcount).fill(-1), map = [];
       const idx = new Uint32Array(tri.length);
       for (let i = 0; i < tri.length; i++) {
-        let r = remap.get(tri[i]);
-        if (r === undefined) { r = map.length; remap.set(tri[i], r); map.push(tri[i]); }
+        let r = remap[tri[i]];
+        if (r < 0) { r = map.length; remap[tri[i]] = r; map.push(tri[i]); }
         idx[i] = r;
       }
       pieces.push({ surf: s, seg: SEGMENTS[g], map: Uint32Array.from(map), idx });
     }
   }
   for (const pc of pieces) {
-    const s = pc.surf, n = pc.map ? pc.map.length : s.vcount;
+    const s = pc.surf, n = pc.map.length;
     const g = new THREE.BufferGeometry();
     const pick = (src, k) => {
-      if (!pc.map) return src;
       const out = new Float32Array(n * k);
       for (let i = 0; i < n; i++) for (let c = 0; c < k; c++) out[i * k + c] = src[pc.map[i] * k + c];
       return out;
@@ -609,27 +653,8 @@ function build() {
     g.computeBoundingSphere(); g.computeBoundingBox();
     pc.geometry = g;
   }
-  const sdfAll = makeSdfAll(bodySDF, headSDF, handSDF, footSDF);
-  BUILT = { surfaces, pieces, sdfAll };
+  BUILT = { surfaces, pieces, sdf: G };
   return BUILT;
-}
-
-// nearest-surface SDF over all parts; `.seg()` reports which coarse segment won
-function makeSdfAll(bodySDF, headSDF, handSDF, footSDF) {
-  const c = [0, 0, 0];
-  let seg = 'torso';
-  const f = (x, y, z) => {
-    let d = bodySDF(x, y, z);
-    const gr = bodySDF.group();
-    seg = gr === 0 ? 'torso' : gr === 1 ? 'neck' : gr === 2 ? `arm-${side(x)}` : `leg-${side(x)}`;
-    if (y > 1.35) { const h = headSDF(x, y, z); if (h < d) { d = h; seg = 'head'; } }
-    const ax = Math.abs(x);
-    if (y < 1.0 && ax > 0.25) { worldToHand(ax, y, z, c); const h = handSDF(c[0], c[1], c[2]); if (h < d) { d = h; seg = `hand-${side(x)}`; } }
-    if (y < 0.2) { worldToFoot(ax, y, z, c); const h = footSDF(c[0], c[1], c[2]); if (h < d) { d = h; seg = `foot-${side(x)}`; } }
-    return d;
-  };
-  f.seg = () => seg;
-  return f;
 }
 
 // soft radial glow texture (no DOM needed)
@@ -650,7 +675,7 @@ const MAX_RING_MARKERS = 8;
 
 // ---------------------------------------------------------------------------------------
 export function create() {
-  const { surfaces, pieces, sdfAll } = build();
+  const { surfaces, pieces, sdf } = build();
   const object = new THREE.Group();
   object.name = 'body';
 
@@ -664,7 +689,7 @@ export function create() {
     uMkN: { value: 0 },
   };
   const skin = new THREE.MeshPhysicalMaterial({
-    color: 0xe7ddd3, roughness: 0.6, metalness: 0,
+    color: 0xe2d2c5, roughness: 0.6, metalness: 0,
     sheen: 0.8, sheenRoughness: 0.5, sheenColor: new THREE.Color(0xffc7ad),
     clearcoat: 0.06, clearcoatRoughness: 0.55,
   });
@@ -746,7 +771,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, uHlColor, hlW * 0.5);`)
     if (r === undefined && sg === undefined) { hlTarget = 0; current = null; return; }
     surfaces.forEach((s, si) => {
       let [a, b] = weights[si];
-      const src = r !== undefined ? s.vreg : s.vseg, key = r !== undefined ? r : sg;
+      const src = r !== undefined ? s.vreg : s.vsegR, key = r !== undefined ? r : sg;
       let any = false;
       for (let v = 0; v < s.vcount; v++) { a[v] = src[v] === key ? 1 : 0; any ||= a[v] > 0; }
       if (any) {
@@ -764,8 +789,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, uHlColor, hlW * 0.5);`)
     });
     for (const { pc, hlAttr } of meshes) {
       const w = pc.surf._w, arr = hlAttr.array;
-      if (pc.map) for (let i = 0; i < arr.length; i++) arr[i] = w[pc.map[i]];
-      else arr.set(w);
+      for (let i = 0; i < arr.length; i++) arr[i] = w[pc.map[i]];
       hlAttr.needsUpdate = true;
     }
     hlTarget = 1;
@@ -774,9 +798,11 @@ diffuseColor.rgb = mix(diffuseColor.rgb, uHlColor, hlW * 0.5);`)
 
   // ---- region lookup ----------------------------------------------------------------
   function regionAt(p, hitMesh) {
-    let seg = hitMesh?.userData?.partId;
-    sdfAll(p.x, p.y, p.z);
-    if (!seg || SIDX[seg] === undefined) seg = sdfAll.seg();
+    let seg = zoneSeg(p.x, p.y, p.z);
+    if (!seg) {
+      seg = hitMesh?.userData?.partId;
+      if (!seg || SIDX[seg] === undefined || SIDX[seg] >= SIDX.head) seg = sdf.seg(p.x, p.y, p.z);
+    }
     const id = regionOf(p.x, p.y, p.z, seg);
     const part = PARTS[RIDX[id]];
     return { id, label: { ...part.label }, segment: seg };
@@ -784,7 +810,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, uHlColor, hlW * 0.5);`)
   const _n = [0, 0, 0];
   function normalAt(p) {
     const e = 0.001, x = p.x, y = p.y, z = p.z;
-    const a = sdfAll(x + e, y - e, z - e), b = sdfAll(x - e, y - e, z + e), c = sdfAll(x - e, y + e, z - e), d = sdfAll(x + e, y + e, z + e);
+    const a = sdf(x + e, y - e, z - e), b = sdf(x - e, y - e, z + e), c = sdf(x - e, y + e, z - e), d = sdf(x + e, y + e, z + e);
     _n[0] = a - b - c + d; _n[1] = -a - b + c + d; _n[2] = -a + b - c + d;
     const l = Math.hypot(_n[0], _n[1], _n[2]) || 1;
     return new THREE.Vector3(_n[0] / l, _n[1] / l, _n[2] / l);

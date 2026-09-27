@@ -1,0 +1,9 @@
+{
+  "name": "EyeSee — Doctor",
+  "short_name": "EyeSee",
+  "start_url": "/phone",
+  "display": "standalone",
+  "background_color": "#0b1f2e",
+  "theme_color": "#0b1f2e",
+  "icons": [{ "src": "/shared/icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

@@ -548,7 +548,7 @@ export function create() {
   }
   smoothPts(ladPts, 3);
   const STEN_U = 0.37;
-  const ladNarrow = (u) => 1 - 0.42 * bump(u, STEN_U, 0.022);
+  const ladNarrow = (u) => 1 - 0.5 * bump(u, STEN_U, 0.03);
   const lad = coronaryTube(ladPts, Rc * 1.0, Rc * 0.35, 'lad', ladNarrow);
   branchOff(lad.curve, 0.3, 40 * deg, -6.0, Rc * 0.62, 'lad');
   branchOff(lad.curve, 0.56, 32 * deg, -8.2, Rc * 0.5, 'lad');
@@ -600,9 +600,9 @@ export function create() {
         const a = (j / radial) * TAU;
         const ca = Math.cos(a), sa = Math.sin(a);
         // eccentric: thicker toward the outer/side face
-        const ecc = 0.55 + 0.45 * (0.5 + 0.5 * Math.cos(a - 0.9));
+        const ecc = Math.pow(0.5 + 0.5 * Math.cos(a - 1.45), 1.4);
         const lump = 1 + 0.13 * noise3(s * 3.2, ca * 1.2 + 3, sa * 1.2, 41);
-        const r = rv * (0.92 + 0.95 * Math.pow(env, 0.85) * ecc * lump);
+        const r = rv * (0.45 + 1.45 * Math.pow(env, 0.8) * ecc * lump);
         pos.push(P.x + (Nn.x * ca + Sd.x * sa) * r, P.y + (Nn.y * ca + Sd.y * sa) * r, P.z + (Nn.z * ca + Sd.z * sa) * r);
       }
     }

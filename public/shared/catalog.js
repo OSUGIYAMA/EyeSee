@@ -68,7 +68,7 @@ export const CONSENT_ELEMENTS = [
 export const MODES = [
   { id: 'interview', en: 'Interview', ja: '問診' },
   { id: 'exam', en: 'Tests', ja: '検査' },
-  { id: 'consent', en: 'Informed consent', ja: 'インフォームド・コンセント' },
+  { id: 'consent', en: 'Informed consent', ja: 'インフォームド・コンセント', tab: { en: 'Consent', ja: 'IC・同意' } },
 ];
 
 export const LANGUAGES = {
