@@ -720,7 +720,7 @@ function syncStage() {
           stageMeta = mod.meta;
           stageObj = mod.create();
           if (id === 'body') bodyAnchor.add(stageObj.object);
-          else stageAnchor.add((stageHolder = fitHolder(stageObj.object, 0.42)));
+          else stageAnchor.add((stageHolder = fitHolder(stageObj.object, id === 'artery' ? 0.62 : 0.42))); // the artery is a long thin segment
           stageTarget = ix.add({
             object: stageObj.object,
             kind: 'mesh',
@@ -760,7 +760,10 @@ function applyStage(st) {
   if (!stageObj || !st) return;
   stageObj.highlight?.(st.highlight || null);
   if (st.tool === 'model') {
-    if (stageObj.setStep && st.step != null && stageObj._step !== st.step) stageObj.setStep((stageObj._step = st.step));
+    if (stageObj.setStep && st.step != null && stageObj._step !== st.step) {
+      stageObj.setStep(st.step, { instant: stageObj._step === undefined });
+      stageObj._step = st.step;
+    }
     targetYaw = st.yaw || 0;
     targetPitch = st.pitch || 0;
     const part = stageObj.parts?.find((x) => x.id === st.highlight);

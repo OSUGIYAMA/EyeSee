@@ -287,7 +287,10 @@ function renderStage() {
     viewer.show('model', id).then((obj) => {
       if (!obj || S.stage !== st) return;
       obj.highlight?.(st.highlight || null);
-      if (obj.setStep && st.step != null && obj._step !== st.step) obj.setStep((obj._step = st.step));
+      if (obj.setStep && st.step != null && obj._step !== st.step) {
+        obj.setStep(st.step, { instant: obj._step === undefined }); // late joiner: jump, don't replay
+        obj._step = st.step;
+      }
       if (st.tool === 'body' && obj.addMarker) {
         const sig = (st.points || []).map((p) => p.id).join(',');
         if (obj._pts !== sig) {

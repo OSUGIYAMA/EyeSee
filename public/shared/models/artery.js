@@ -445,6 +445,22 @@ export function create() {
     return Math.min(h0, Math.max(0.035 * prof(x) + 0.004, wallIn(x, th) - push));
   };
   const lumenAt = (x, th) => wallIn(x, th) - plaqueNow(x, th);
+  // lookup tables for the per-frame blood-cell update (x × angle), so the hot path is plain arithmetic
+  const LX = 220, LA = 36, TX0 = -XL - 0.6, TX1 = XL + 0.6;
+  const tWall = new Float32Array(LX * LA), tPlq = new Float32Array(LX * LA), tMinH = new Float32Array(LX), tPush = new Float32Array(LX);
+  for (let j = 0; j < LA; j++) for (let i = 0; i < LX; i++) {
+    const x = lerp(TX0, TX1, i / (LX - 1)), th = (j / LA) * TAU;
+    tWall[j * LX + i] = wallIn(x, th);
+    tPlq[j * LX + i] = plaque0(x, th);
+  }
+  for (let i = 0; i < LX; i++) tMinH[i] = 0.035 * prof(lerp(TX0, TX1, i / (LX - 1))) + 0.004;
+  const refreshPush = () => {
+    for (let i = 0; i < LX; i++) {
+      const x = lerp(TX0, TX1, i / (LX - 1));
+      tPush[i] = Math.max(S.push2 * balProf(x), S.push3 * balProf(x * 0.97));
+    }
+  };
+  refreshPush();
 
   // ── materials ──
   const phys = (o) => track(new THREE.MeshPhysicalMaterial({ envMap: env, envMapIntensity: 0.55, ...o }));
@@ -687,8 +703,10 @@ export function create() {
   cells.userData.partId = 'blood';
   cells.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   body.add(cells);
-  const rng = (() => { let s = 1234567; return () => { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s / 4294967296; }; })();
+  const rs = new Uint32Array([1234567]);
+  const rng = () => { rs[0] = Math.imul(rs[0], 1664525) + 1013904223; return rs[0] / 4294967296; };
   const cx = new Float32Array(NCELL), crho = new Float32Array(NCELL), cphi = new Float32Array(NCELL), cadm = new Float32Array(NCELL);
+  const crow = new Int32Array(NCELL);
   const cspin = new Float32Array(NCELL), cang = new Float32Array(NCELL), caxis = [];
   const tmpCol = new THREE.Color();
   for (let i = 0; i < NCELL; i++) {
@@ -698,11 +716,13 @@ export function create() {
     cadm[i] = rng();
     cspin[i] = (rng() - 0.5) * 2.4;
     cang[i] = rng() * TAU;
+    crow[i] = (Math.round((cphi[i] / TAU) * LA) % LA) * LX;
     caxis.push(new THREE.Vector3(rng() - 0.5, rng() - 0.5, rng() - 0.5).normalize());
     cells.setColorAt(i, tmpCol.setRGB(1, 1, 1).multiplyScalar(0.88 + 0.2 * rng()));
   }
   const GATE = -PX + 0.1;
   const qc = new THREE.Quaternion(), pc = new THREE.Vector3(), sc = new THREE.Vector3(), mc = new THREE.Matrix4();
+  const TXS = (LX - 1) / (TX1 - TX0);
   const updateCells = (dt) => {
     const flowEff = S.flow * (1 - S.occl);
     const v0 = lerp(0.75, 2.3, (S.flow - 0.3) / 0.7);
@@ -710,7 +730,20 @@ export function create() {
     for (let i = 0; i < NCELL; i++) {
       let x = cx[i];
       const blocked = cadm[i] > flowEff;
-      const lum = lumenAt(x, cphi[i]);
+      // current lumen radius along this cell's streamline (table lookup, linear in x)
+      const fx = (x - TX0) * TXS;
+      let k0 = fx | 0; if (k0 < 0) k0 = 0; else if (k0 > LX - 2) k0 = LX - 2;
+      const f = clamp01(fx - k0), o = crow[i] + k0;
+      const wi = tWall[o] + (tWall[o + 1] - tWall[o]) * f;
+      const h0 = tPlq[o] + (tPlq[o + 1] - tPlq[o]) * f;
+      let lum = wi;
+      if (h0 > 0) {
+        let h = wi - (tPush[k0] + (tPush[k0 + 1] - tPush[k0]) * f);
+        const hm = tMinH[k0] + (tMinH[k0 + 1] - tMinH[k0]) * f;
+        if (h < hm) h = hm;
+        if (h > h0) h = h0;
+        lum = wi - h;
+      }
       let v = v0 * (0.75 + 0.25 * Math.min(1, lum));
       if (blocked && x > GATE - 1.2) v *= 0.55; // queue up in front of the narrowing
       x += v * dt;
@@ -735,8 +768,8 @@ export function create() {
       setP(pc, x, cphi[i], r);
       qc.setFromAxisAngle(caxis[i], cang[i]);
       const sEnd = sstep(XL + 0.4, XL - 0.2, x) * sstep(-XL - 0.4, -XL + 0.2, x); // fade at the open ends
-      const k = scale * Math.max(sEnd, 0.001);
-      sc.set(k, k, k);
+      const ks = scale * Math.max(sEnd, 0.001);
+      sc.set(ks, ks, ks);
       mc.compose(pc, qc, sc);
       cells.setMatrixAt(i, mc);
     }
@@ -766,7 +799,7 @@ export function create() {
       M.stent.userData.clipX.value = CLIP;
       if (kStent !== lastStent) { lastStent = kStent; stent.refill(S.stentR, S.stentA, S.stentX); }
     } else { stent.mesh.visible = false; stent.mesh.scale.setScalar(1e-4); }
-    if (kPlq !== lastPlaque) { lastPlaque = kPlq; for (const f of plaqueRefills) f(); }
+    if (kPlq !== lastPlaque) { lastPlaque = kPlq; for (const f of plaqueRefills) f(); refreshPush(); }
   };
 
   // ── normalise: ~1 unit long, centred (bounds = the vessel itself; devices/cells stay inside it) ──
