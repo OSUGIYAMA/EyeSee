@@ -121,6 +121,28 @@ const rayResult = await quest.evaluate(async () => {
 });
 check(rayResult === 'feelings', `controller ray + trigger opens the feelings panel (work mode: ${rayResult})`);
 
+// ---- body map: the doctor opens it, the patient points at the chest with the controller ray.
+await phone.evaluate(() => window.__eyesee.link.send({ type: 'stage', stage: { tool: 'body' } }));
+await quest.waitForFunction(() => window.__eyesee.stageObj?.regionAt, null, { timeout: 8000 }).catch(() => {});
+const bodyResult = await quest.evaluate(async () => {
+  const { THREE, stageObj } = window.__eyesee;
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  if (!stageObj) return 'body not loaded';
+  const target = stageObj.object.localToWorld(new THREE.Vector3(0.0, 1.3, 0.2));
+  const c = window.__xr.controllers.right;
+  const from = new THREE.Vector3(0.62, 1.2, 0.2);
+  c.position.set(from.x, from.y, from.z);
+  const q = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(from, target, new THREE.Vector3(0, 1, 0)));
+  c.quaternion.set(q.x, q.y, q.z, q.w);
+  await wait(200);
+  c.updateButtonValue('trigger', 1);
+  await wait(200);
+  c.updateButtonValue('trigger', 0);
+  await wait(600);
+  return window.__eyesee.state.stage?.points?.map((p) => p.region.id).join(',') || 'no point';
+});
+check(/chest/.test(bodyResult), `pointing at the body's chest records a pain location (${bodyResult})`);
+
 await quest.screenshot({ path: path.resolve(process.env.SHOT_DIR || '.', 'xr-test.png') });
 await browser.close();
 if (logs.length) console.log(logs.join('\n'));

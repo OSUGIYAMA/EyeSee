@@ -977,6 +977,6 @@ Promise.race([document.fonts.load(`700 32px "Noto Sans JP"`), new Promise((r) =>
   renderAll();
 });
 
-window.__eyesee = { link, get state() { return S; }, scene, uiRoot, ix, renderer, THREE, buttons: { iSeeBtn, confusedBtn, aiBtn }, panels: { transcript, glossary, work }, painGrid, get painOrbs() { return painOrbs; }, get workMode() { return S && workMode(); } };
+window.__eyesee = { link, get state() { return S; }, scene, uiRoot, ix, renderer, THREE, buttons: { iSeeBtn, confusedBtn, aiBtn }, panels: { transcript, glossary, work }, painGrid, get painOrbs() { return painOrbs; }, get stageObj() { return stageObj; }, get workMode() { return S && workMode(); } };
 // test hook: look direction in degrees (desktop preview)
 window.__setView = (yawDeg, pitchDeg) => camera.rotation.set((pitchDeg * Math.PI) / 180, (yawDeg * Math.PI) / 180, 0, 'YXZ');
