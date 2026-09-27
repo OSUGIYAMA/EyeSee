@@ -72,15 +72,17 @@ const fbm = (x, y, z, s = 0) =>
   noise3(x, y, z, s) * 0.6 + noise3(x * 2.03, y * 2.03, z * 2.03, s + 7) * 0.28 + noise3(x * 4.1, y * 4.1, z * 4.1, s + 13) * 0.12;
 
 function sdEllipsoid(x, y, z, rx, ry, rz) {
-  const k0 = Math.hypot(x / rx, y / ry, z / rz);
-  const k1 = Math.hypot(x / (rx * rx), y / (ry * ry), z / (rz * rz));
+  const ax = x / rx, ay = y / ry, az = z / rz, bx = ax / rx, by = ay / ry, bz = az / rz;
+  const k0 = Math.sqrt(ax * ax + ay * ay + az * az);
+  const k1 = Math.sqrt(bx * bx + by * by + bz * bz);
   return k1 < 1e-9 ? -Math.min(rx, ry, rz) : (k0 * (k0 - 1)) / k1;
 }
 function sdCapsule(x, y, z, a, b, r) {
   const px = x - a.x, py = y - a.y, pz = z - a.z;
   const bx = b.x - a.x, by = b.y - a.y, bz = b.z - a.z;
   const h = clamp01((px * bx + py * by + pz * bz) / (bx * bx + by * by + bz * bz));
-  return Math.hypot(px - bx * h, py - by * h, pz - bz * h) - r;
+  const qx = px - bx * h, qy = py - by * h, qz = pz - bz * h;
+  return Math.sqrt(qx * qx + qy * qy + qz * qz) - r;
 }
 
 // Orthonormal frame whose y axis is `up`, z axis as close to `hint` as possible.
@@ -348,7 +350,7 @@ export function create() {
     const a = 6.3 * k + 0.05, b = 9.9 * k + 0.05;
     const xc = 5.2 + 3.2 * tt, zc = -0.6 - 1.0 * tt;
     const X = (sx - xc) / a, Z = (z - zc) / b;
-    let f = (Math.pow(Math.pow(Math.abs(X), 2.1) + Math.pow(Math.abs(Z), 2.1), 1 / 2.1) - 1) * Math.min(a, b);
+    let f = (Math.sqrt(X * X + Z * Z) - 1) * Math.min(a, b);
     if (y > yTop) f = Math.max(f, y - yTop);
     f = smax(f, 2.4 - sx + 0.18 * z, 1.2); // flat mediastinal surface
     f = smax(f, 0.4 - sdEllipsoid(x - heartC.x, y - heartC.y, z - heartC.z, 6.7, 5.6, 5.4), 1.6); // heart bed / cardiac notch

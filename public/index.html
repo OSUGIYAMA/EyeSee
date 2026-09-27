@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>EyeSee</title>
+<link rel="icon" href="/shared/icon.svg">
+<style>
+  :root { --bg: #081018; --card: #0f1c28; --line: #1f3243; --ink: #eef5fb; --muted: #93a9bb; --accent: #14b8a6; --doc: #6ea0ff; --pat: #fb923c; }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; background: radial-gradient(circle at 50% 0%, #123049, var(--bg) 60%); color: var(--ink); font: 16px/1.55 -apple-system, "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif; }
+  main { max-width: 980px; margin: 0 auto; padding: 48px 16px 60px; }
+  .hero { text-align: center; margin-bottom: 34px; }
+  .eye { width: 72px; height: 72px; margin: 0 auto 12px; border-radius: 50%; background: radial-gradient(circle, #081018 0 26%, #22d3ee 28% 46%, #0f766e 48%); box-shadow: 0 0 60px #22d3ee44; }
+  h1 { font-size: 44px; margin: 0; letter-spacing: 1px; }
+  .tag { color: var(--muted); margin: 8px 0 0; font-size: 17px; }
+  .tag b { color: var(--ink); font-weight: 600; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 16px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 22px; padding: 22px; display: flex; flex-direction: column; gap: 12px; }
+  .card h2 { margin: 0; font-size: 22px; display: flex; align-items: center; gap: 10px; }
+  .card p { margin: 0; color: var(--muted); font-size: 14.5px; }
+  .role { font-size: 12px; font-weight: 800; letter-spacing: 0.6px; text-transform: uppercase; }
+  .doc .role { color: var(--doc); } .pat .role { color: var(--pat); }
+  .qr { display: flex; gap: 14px; align-items: center; background: #ffffff08; border-radius: 16px; padding: 12px; }
+  .qr img { width: 112px; height: 112px; border-radius: 10px; background: #fff; flex: none; }
+  .qr code { font-size: 14px; word-break: break-all; color: var(--ink); }
+  a.btn { display: block; text-align: center; padding: 14px; border-radius: 14px; font-weight: 800; text-decoration: none; color: #fff; background: linear-gradient(135deg, #14b8a6, #0e7490); }
+  .pat a.btn { background: linear-gradient(135deg, #f97316, #c2410c); }
+  .room { display: flex; gap: 8px; align-items: center; justify-content: center; margin: 22px 0 0; color: var(--muted); }
+  .room input { font: inherit; width: 140px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line); background: #ffffff0a; color: var(--ink); text-align: center; }
+  .caps { margin-top: 28px; text-align: center; color: var(--muted); font-size: 13px; }
+  .why { margin-top: 34px; background: #ffffff06; border: 1px solid var(--line); border-radius: 22px; padding: 22px; color: #cfdeea; font-size: 14.5px; }
+  .why h3 { margin: 0 0 8px; font-size: 16px; color: var(--ink); }
+  .why ul { margin: 0; padding-left: 20px; }
+</style>
+</head>
+<body>
+<main>
+  <section class="hero">
+    <div class="eye"></div>
+    <h1>EyeSee</h1>
+    <p class="tag"><b>See what your doctor means.</b> See what your patient understands.</p>
+    <p class="tag">医師と患者が、お互いに「I see」と言えるように。</p>
+  </section>
+
+  <section class="grid">
+    <article class="card doc">
+      <span class="role">Doctor · 医師</span>
+      <h2>📱 Phone</h2>
+      <p>The phone is the doctor's microphone and console: live bilingual transcript, understanding score, 3D models, EyeSee AI, and the consent step.</p>
+      <div class="qr"><img id="qrDoc" alt="QR for the doctor's phone"><code id="urlDoc"></code></div>
+      <a class="btn" id="goDoc">Open doctor app →</a>
+    </article>
+    <article class="card pat">
+      <span class="role">Patient · 患者</span>
+      <h2>🥽 Meta Quest</h2>
+      <p>医師の言葉が目の前に日本語で。話すと医師のスマホに英語で届きます。Open this in the Quest browser (short link below).</p>
+      <div class="qr"><img id="qrPat" alt="QR for the headset"><code id="urlPat"></code></div>
+      <a class="btn" id="goPat">Open headset view →</a>
+    </article>
+  </section>
+
+  <div class="room">Room <input id="room" value="clinic" maxlength="32" aria-label="Room"></div>
+  <div class="caps" id="caps"></div>
+
+  <section class="why">
+    <h3>Why informed consent first</h3>
+    <ul>
+      <li>40% of U.S. malpractice cases in CRICO/Candello's 2014–2024 analysis involved a communication-related factor; 63% of those, a provider–patient communication failure.</li>
+      <li>In surgical claims, inadequate informed consent — especially not explaining non-surgical alternatives — raises the chance of an indemnity payment.</li>
+      <li>If a shared-understanding interface works at the highest-stakes decision in medicine, it can extend to law, insurance, immigration, housing and finance: anywhere people must truly understand before they say “yes”.</li>
+    </ul>
+  </section>
+</main>
+<script type="module">
+  const $ = (s) => document.getElementById(s);
+  const cfg = await (await fetch('/api/config')).json();
+  const host = location.hostname === 'localhost' && cfg.lan?.[0] ? `${cfg.lan[0]}:${cfg.ports.https}` : location.host;
+  const proto = location.hostname === 'localhost' && cfg.lan?.[0] ? 'https:' : location.protocol;
+  $('room').value = localStorage.getItem('eyesee.room') || 'clinic';
+  function update() {
+    const room = ($('room').value || 'clinic').toLowerCase().replace(/[^a-z0-9-]/g, '');
+    localStorage.setItem('eyesee.room', room);
+    const q = room === 'clinic' ? '' : `?room=${room}`;
+    const d = `${proto}//${host}/d${q}`, p = `${proto}//${host}/q${q}`;
+    $('urlDoc').textContent = d;
+    $('urlPat').textContent = p;
+    $('qrDoc').src = `/api/qr?text=${encodeURIComponent(d)}`;
+    $('qrPat').src = `/api/qr?text=${encodeURIComponent(p)}`;
+    $('goDoc').href = `/phone?room=${room}`;
+    $('goPat').href = `/quest?room=${room}`;
+  }
+  $('room').oninput = update;
+  update();
+  const c = cfg.caps;
+  $('caps').textContent = `AI · language: ${c.llm || 'offline demo'} · speech: ${c.stt || 'browser'} · images: ${c.image || 'off'} · understanding judge: ${c.judge === 'jev' ? 'JEV (TypeSafe System One)' : c.judge}`;
+</script>
+</body>
+</html>

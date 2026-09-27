@@ -6,6 +6,9 @@ import crypto from 'node:crypto';
 import { GoogleGenAI } from '@google/genai';
 import { config, DATA_DIR } from '../config.js';
 
+// Use the service account, not an API key that may be lying around in the shell environment.
+if (config.google) for (const k of ['GOOGLE_API_KEY', 'GEMINI_API_KEY']) delete process.env[k];
+
 export const gemini = config.google
   ? new GoogleGenAI({
       vertexai: true,

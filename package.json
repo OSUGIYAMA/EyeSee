@@ -26,6 +26,7 @@
     "ws": "^8.22.0"
   },
   "devDependencies": {
+    "iwer": "^2.5.0",
     "playwright-core": "^1.63.0"
   }
 }

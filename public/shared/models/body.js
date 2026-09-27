@@ -363,7 +363,7 @@ function polygonize(f, bmin, bmax, h) {
   const CF = new Float32Array(cnx * cny * cnz);
   for (let k = 0; k < cnz; k++) for (let j = 0; j < cny; j++) for (let i = 0; i < cnx; i++)
     CF[i + cnx * (j + cny * k)] = f(bmin[0] + i * C * h, bmin[1] + j * C * h, bmin[2] + k * C * h);
-  const thr = C * h * 1.5;
+  const thr = C * h * 1.15;
   for (let k = 0; k < nz; k++) {
     const ck = Math.round(k / C), z = bmin[2] + k * h;
     for (let j = 0; j < ny; j++) {
@@ -400,7 +400,7 @@ function polygonize(f, bmin, bmax, h) {
   }
   const vcount = P.length / 3;
   const pos = new Float32Array(P), nor = new Float32Array(vcount * 3);
-  // project onto the true surface (2 Newton steps, clamped) and take SDF-gradient normals
+  // project onto the true surface (one Newton step, clamped) and take SDF-gradient normals
   const e = h * 0.05, maxMove = h * 0.75;
   const grad = (x, y, z, out) => {
     const a = f(x + e, y - e, z - e), b = f(x - e, y - e, z + e), c = f(x - e, y + e, z - e), d = f(x + e, y + e, z + e);
@@ -413,7 +413,7 @@ function polygonize(f, bmin, bmax, h) {
   for (let v = 0; v < vcount; v++) {
     const ox = pos[3 * v], oy = pos[3 * v + 1], oz = pos[3 * v + 2];
     let x = ox, y = oy, z = oz;
-    for (let it = 0; it < 2; it++) {
+    {
       const d = f(x, y, z), gl = grad(x, y, z, gv);
       const step = d / Math.max(gl, 0.2);
       x -= gv[0] * step; y -= gv[1] * step; z -= gv[2] * step;
@@ -438,7 +438,7 @@ function polygonize(f, bmin, bmax, h) {
     if (in0 !== (F[n0 + nx] < 0)) quad(cellV[n0 - 1 - sxy], cellV[n0 - 1], cellV[n0], cellV[n0 - sxy], !in0);
     if (in0 !== (F[n0 + sxy] < 0)) quad(cellV[n0 - 1 - nx], cellV[n0 - nx], cellV[n0], cellV[n0 - 1], !in0);
   }
-  return { pos, nor, idx: new Uint32Array(T), vcount };
+  return { pos, nor, idx: new Uint32Array(T), vcount, h };
 }
 function dist2(p, a, b) { const x = p[3 * a] - p[3 * b], y = p[3 * a + 1] - p[3 * b + 1], z = p[3 * a + 2] - p[3 * b + 2]; return x * x + y * y + z * z; }
 
@@ -455,7 +455,7 @@ function placeMesh(m, toWorld, mirror) {
   }
   const idx = new Uint32Array(m.idx);
   if (mirror) for (let t = 0; t < idx.length; t += 3) { const a = idx[t + 1]; idx[t + 1] = idx[t + 2]; idx[t + 2] = a; }
-  return { pos, nor, idx, vcount: m.vcount };
+  return { pos, nor, idx, vcount: m.vcount, h: m.h };
 }
 function mirrorMesh(m) { return placeMesh(m, (p) => p, true); }
 
@@ -555,12 +555,11 @@ function buildFigureSDF() {
   };
   G.group = () => grp;
   // coarse segment of a point near the surface
-  G.seg = (x, y, z) => {
-    const zs = zoneSeg(x, y, z);
-    if (zs) return zs;
+  G.groupSeg = (x, y, z) => {
     G(x, y, z);
     return grp === 0 ? 'torso' : grp === 1 || grp === 4 ? 'neck' : grp === 2 || grp === 5 ? `arm-${side(x)}` : `leg-${side(x)}`;
   };
+  G.seg = (x, y, z) => zoneSeg(x, y, z) || G.groupSeg(x, y, z);
   return G;
 }
 
@@ -571,40 +570,42 @@ function build() {
   const M = 0.0015; // overlap margin between grids
   const surfaces = [];
   // keep a triangle if any of its vertices is on this grid's side of the clip planes
-  const addSurf = (m, keep, vsegFn, iters) => surfaces.push({ ...m, keep, vsegFn, iters });
+  const addSurf = (m, keep, vsegFn) => surfaces.push({ ...m, keep, vsegFn });
 
   addSurf(polygonize(G, [-0.45, 0.075, -0.17], [0.45, 1.575, 0.16], 0.013),
     (x, y, z) => { const ax = Math.abs(x); return headPlane(y, z) < M && y > ANKLE_Y - M && !(ax > 0.28 && nearHand(ax, y, z) && wristPlane(ax, y, z) > M); },
-    (x, y, z) => { G(x, y, z); const g = G.group(); return g === 0 ? 'torso' : g === 1 || g === 4 ? 'neck' : g === 2 || g === 5 ? `arm-${side(x)}` : `leg-${side(x)}`; }, 2);
-  addSurf(polygonize(G, [-0.098, 1.42, -0.125], [0.098, 1.72, 0.13], 0.005), (x, y, z) => headPlane(y, z) > -M, () => 'head', 4);
+    (x, y, z) => G.groupSeg(x, y, z));
+  addSurf(polygonize(G, [-0.098, 1.42, -0.125], [0.098, 1.72, 0.13], 0.005), (x, y, z) => headPlane(y, z) > -M, () => 'head');
   {
     const hw = (x, y, z) => { const p = handToWorld([x, y, z]); return G(p[0], p[1], p[2]); };
     const c = polygonize(hw, [-0.052, -0.2, -0.04], [0.078, 0.04, 0.075], 0.0047);
     const L = placeMesh(c, handToWorld, false), R = mirrorMesh(L);
     const keep = (x, y, z) => wristPlane(Math.abs(x), y, z) > -M;
-    addSurf(L, keep, () => 'hand-left', 5);
-    addSurf(R, keep, () => 'hand-right', 5);
+    addSurf(L, keep, () => 'hand-left');
+    addSurf(R, keep, () => 'hand-right');
   }
   {
     const fw = (x, y, z) => { const p = footToWorld([x, y, z]); return G(p[0], p[1], p[2]); };
     const c = polygonize(fw, [-0.07, -0.01, -0.08], [0.07, 0.16, 0.205], 0.007);
     const L = placeMesh(c, footToWorld, false), R = mirrorMesh(L);
     const keep = (x, y) => y < ANKLE_Y + M;
-    addSurf(L, keep, () => 'foot-left', 3);
-    addSurf(R, keep, () => 'foot-right', 3);
+    addSurf(L, keep, () => 'foot-left');
+    addSurf(R, keep, () => 'foot-right');
   }
 
   // per-vertex segment / region / breathing weights / keep flag, adjacency
   for (const s of surfaces) {
     s.vseg = new Uint8Array(s.vcount);   // coarse segment used to split meshes (partId)
     s.vsegR = new Uint8Array(s.vcount);  // coarse segment used for regions / highlight
+    s.vsegG = new Uint8Array(s.vcount);  // body-group segment (ignoring head/hand/foot zones)
     s.vreg = new Uint8Array(s.vcount);
     s.vkeep = new Uint8Array(s.vcount);
     s.breath = new Float32Array(s.vcount * 2);
     for (let v = 0; v < s.vcount; v++) {
       const x = s.pos[3 * v], y = s.pos[3 * v + 1], z = s.pos[3 * v + 2];
       s.vseg[v] = SIDX[s.vsegFn(x, y, z)];
-      const segR = G.seg(x, y, z);
+      const segG = G.groupSeg(x, y, z), segR = zoneSeg(x, y, z) || segG;
+      s.vsegG[v] = SIDX[segG];
       s.vsegR[v] = SIDX[segR];
       s.vreg[v] = RIDX[regionOf(x, y, z, segR)];
       s.vkeep[v] = s.keep(x, y, z) ? 1 : 0;
@@ -613,6 +614,17 @@ function build() {
       s.breath[2 * v + 1] = Math.max(sstep(1.10, 1.38, y), y > 0.6 ? sstep(0.19, 0.25, ax) : 0);      // shoulders/arms/head lift
     }
     s.adj = adjacency(s.idx, s.vcount);
+    // vertices within ~HL_R of any region boundary get super-sampled highlight weights
+    const { start, list } = s.adj;
+    let bnd = new Uint8Array(s.vcount);
+    for (let v = 0; v < s.vcount; v++) for (let e = start[v]; e < start[v + 1]; e++) if (s.vreg[list[e]] !== s.vreg[v]) { bnd[v] = 1; break; }
+    const rings = Math.ceil(HL_R / s.h) + 1;
+    for (let it = 0; it < rings; it++) {
+      const nb = bnd.slice();
+      for (let v = 0; v < s.vcount; v++) if (bnd[v]) for (let e = start[v]; e < start[v + 1]; e++) nb[list[e]] = 1;
+      bnd = nb;
+    }
+    s.bnd = bnd;
   }
 
   // geometries: clip to each grid's side, split into coarse segment meshes
@@ -672,6 +684,11 @@ function glowTexture() {
 }
 
 const MAX_RING_MARKERS = 8;
+const HL_R = 0.011; // highlight edge softness radius (m)
+// tangent-plane sample pattern for anti-aliased region weights: centre + 2 rings
+const HL_SAMPLES = [[0, 0]];
+for (let i = 0; i < 6; i++) HL_SAMPLES.push([0.5 * Math.cos(i * Math.PI / 3), 0.5 * Math.sin(i * Math.PI / 3)]);
+for (let i = 0; i < 10; i++) HL_SAMPLES.push([Math.cos((i + 0.5) * Math.PI / 5), Math.sin((i + 0.5) * Math.PI / 5)]);
 
 // ---------------------------------------------------------------------------------------
 export function create() {
@@ -717,7 +734,7 @@ uniform float uMkN;
 varying float vHl;
 varying vec3 vLocal;`)
       .replace('#include <color_fragment>', `#include <color_fragment>
-float hlW = smoothstep(0.22, 0.78, vHl) * uHlAmt;
+float hlW = smoothstep(0.2, 0.8, vHl) * uHlAmt;
 diffuseColor.rgb = mix(diffuseColor.rgb, uHlColor, hlW * 0.5);`)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
 {
@@ -759,9 +776,11 @@ diffuseColor.rgb = mix(diffuseColor.rgb, uHlColor, hlW * 0.5);`)
     object.add(mesh);
     meshes.push({ mesh, pc, hlAttr });
   }
-  const weights = surfaces.map((s) => [new Float32Array(s.vcount), new Float32Array(s.vcount)]);
+  const weights = surfaces.map((s) => [new Float32Array(s.vcount)]);
 
   // ---- highlight --------------------------------------------------------------------
+  // Weights are a pure function of position (region membership super-sampled over a small
+  // tangent disc), so overlapping grids agree and region edges are smooth, not stair-stepped.
   let hlTarget = 0, hlAmt = 0, current = null;
   function highlight(regionId, color) {
     current = regionId ?? null;
@@ -769,29 +788,35 @@ diffuseColor.rgb = mix(diffuseColor.rgb, uHlColor, hlW * 0.5);`)
     if (!current) { hlTarget = 0; return; }
     const r = RIDX[current], sg = SIDX[current];
     if (r === undefined && sg === undefined) { hlTarget = 0; current = null; return; }
+    const byRegion = r !== undefined;
     surfaces.forEach((s, si) => {
-      let [a, b] = weights[si];
-      const src = r !== undefined ? s.vreg : s.vsegR, key = r !== undefined ? r : sg;
-      let any = false;
-      for (let v = 0; v < s.vcount; v++) { a[v] = src[v] === key ? 1 : 0; any ||= a[v] > 0; }
-      if (any) {
-        const { start, list } = s.adj;
-        for (let it = 0; it < s.iters; it++) {
-          for (let v = 0; v < s.vcount; v++) {
-            let sum = a[v] * 2, cnt = 2;
-            for (let e = start[v]; e < start[v + 1]; e++) { sum += a[list[e]]; cnt++; }
-            b[v] = sum / cnt;
-          }
-          const t = a; a = b; b = t;
+      const w = weights[si][0], pos = s.pos, nor = s.nor;
+      for (let v = 0; v < s.vcount; v++) {
+        const inside = byRegion ? s.vreg[v] === r : s.vsegR[v] === sg;
+        if (!s.bnd[v]) { w[v] = inside ? 1 : 0; continue; }
+        const x = pos[3 * v], y = pos[3 * v + 1], z = pos[3 * v + 2];
+        const nx = nor[3 * v], ny = nor[3 * v + 1], nz = nor[3 * v + 2];
+        // tangent basis from a fixed reference so neighbouring grids sample the same pattern
+        let rx = 0, ry = 1, rz = 0;
+        if (Math.abs(ny) > 0.9) { rx = 1; ry = 0; }
+        let t1x = ny * rz - nz * ry, t1y = nz * rx - nx * rz, t1z = nx * ry - ny * rx;
+        const tl = Math.hypot(t1x, t1y, t1z) || 1; t1x /= tl; t1y /= tl; t1z /= tl;
+        const t2x = ny * t1z - nz * t1y, t2y = nz * t1x - nx * t1z, t2z = nx * t1y - ny * t1x;
+        const gseg = SEGMENTS[s.vsegG[v]];
+        let hit = 0;
+        for (const [a, b] of HL_SAMPLES) {
+          const px = x + (t1x * a + t2x * b) * HL_R, py = y + (t1y * a + t2y * b) * HL_R, pz = z + (t1z * a + t2z * b) * HL_R;
+          const seg = zoneSeg(px, py, pz) || gseg;
+          if (byRegion ? regionOf(px, py, pz, seg) === current : seg === current) hit++;
         }
+        w[v] = hit / HL_SAMPLES.length;
       }
-      s._w = a;
     });
-    for (const { pc, hlAttr } of meshes) {
-      const w = pc.surf._w, arr = hlAttr.array;
+    meshes.forEach(({ pc, hlAttr }) => {
+      const w = weights[surfaces.indexOf(pc.surf)][0], arr = hlAttr.array;
       for (let i = 0; i < arr.length; i++) arr[i] = w[pc.map[i]];
       hlAttr.needsUpdate = true;
-    }
+    });
     hlTarget = 1;
     hlAmt = Math.min(hlAmt, 0.35); // re-trigger the fade-in
   }

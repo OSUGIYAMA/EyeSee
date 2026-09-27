@@ -84,15 +84,17 @@ const fbm = (x, y, z, s = 0) =>
   noise3(x, y, z, s) * 0.6 + noise3(x * 2.03, y * 2.03, z * 2.03, s + 7) * 0.28 + noise3(x * 4.1, y * 4.1, z * 4.1, s + 13) * 0.12;
 
 function sdEllipsoid(x, y, z, rx, ry, rz) {
-  const k0 = Math.hypot(x / rx, y / ry, z / rz);
-  const k1 = Math.hypot(x / (rx * rx), y / (ry * ry), z / (rz * rz));
+  const ax = x / rx, ay = y / ry, az = z / rz, bx = ax / rx, by = ay / ry, bz = az / rz;
+  const k0 = Math.sqrt(ax * ax + ay * ay + az * az);
+  const k1 = Math.sqrt(bx * bx + by * by + bz * bz);
   return k1 < 1e-9 ? -Math.min(rx, ry, rz) : (k0 * (k0 - 1)) / k1;
 }
 function sdCapsule(x, y, z, a, b, r) {
   const px = x - a.x, py = y - a.y, pz = z - a.z;
   const bx = b.x - a.x, by = b.y - a.y, bz = b.z - a.z;
   const h = clamp01((px * bx + py * by + pz * bz) / (bx * bx + by * by + bz * bz));
-  return Math.hypot(px - bx * h, py - by * h, pz - bz * h) - r;
+  const qx = px - bx * h, qy = py - by * h, qz = pz - bz * h;
+  return Math.sqrt(qx * qx + qy * qy + qz * qz) - r;
 }
 
 // Orthonormal frame whose y axis is `up`, z axis as close to `hint` as possible.
@@ -308,7 +310,8 @@ export function create() {
     if (t < 0) { const q = t / 0.24; R = 3.25 * Math.sqrt(Math.max(0, 1 - q * q)); }
     else if (t > 1) R = -1;
     else R = 3.25 * Math.pow(Math.max(0, 1 - Math.pow(t, 2.3)), 0.5);
-    return Math.hypot((u - 0.95 + 0.25 * t) / 1.0, (w + 0.4) / 0.9) - R;
+    const qa = (u - 0.95 + 0.25 * t) / 1.0, qb = (w + 0.4) / 0.9;
+    return Math.sqrt(qa * qa + qb * qb) - R;
   };
   const PVv = new THREE.Vector3(1.25, 2.3, 1.75); // pulmonary valve
   const infA = new THREE.Vector3().addScaledVector(hx, -0.2).addScaledVector(hy, -1.2).addScaledVector(hz, 1.9);
@@ -319,7 +322,8 @@ export function create() {
     if (t < 0) { const q = t / 0.3; R = 3.1 * Math.sqrt(Math.max(0, 1 - q * q)); }
     else if (t > 1) R = -1;
     else R = 3.1 * Math.pow(Math.max(0, 1 - Math.pow(t, 1.9)), 0.6);
-    let f = Math.hypot((u + 1.25 - 1.0 * t) / 1.05, (w - 1.25 + 0.2 * t) / 0.78) - R;
+    const qa = (u + 1.25 - 1.0 * t) / 1.05, qb = (w - 1.25 + 0.2 * t) / 0.78;
+    const f = Math.sqrt(qa * qa + qb * qb) - R;
     return smin(f, sdCapsule(x, y, z, infA, PVv, 1.3), 1.2); // outflow tract (infundibulum)
   };
   // Blended ventricular mass with a shallow interventricular groove; LV/RV are its two halves.

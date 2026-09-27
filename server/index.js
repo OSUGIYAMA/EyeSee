@@ -16,6 +16,9 @@ import { renderRecord } from './record.js';
 const app = express();
 app.disable('x-powered-by');
 app.use('/vendor/three', express.static(path.join(ROOT, 'node_modules/three')));
+// Short links (typing URLs in a headset is painful): /q → patient headset, /d → doctor phone.
+app.get('/q', (req, res) => res.redirect(`/quest?room=${encodeURIComponent(req.query.room || 'clinic')}`));
+app.get('/d', (req, res) => res.redirect(`/phone?room=${encodeURIComponent(req.query.room || 'clinic')}`));
 app.use('/media/images', express.static(path.join(DATA_DIR, 'images'), { maxAge: '1d' }));
 app.use(express.static(path.join(ROOT, 'public'), { extensions: ['html'] }));
 app.use(express.json({ limit: '1mb' }));

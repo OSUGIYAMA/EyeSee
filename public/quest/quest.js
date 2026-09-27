@@ -89,7 +89,7 @@ place(glossary.mesh, 0.93, 0.03, -1.0, -0.75);
 const work = new Panel({ w: 0.66, h: 0.4, ppm: 1300, name: 'work' });
 place(work.mesh, 0, -0.41, -0.53, 0, -0.62);
 const toastP = new Panel({ w: 0.56, h: 0.07, ppm: 1200, name: 'toast' });
-place(toastP.mesh, 0, -0.17, -0.62, 0, -0.2);
+place(toastP.mesh, 0, -0.205, -0.56, 0, -0.45); // just above the hand panel, below the transcript's line of sight
 toastP.mesh.visible = false;
 const stageAnchor = place(new THREE.Group(), -0.66, -0.06, -0.8, 0.7);
 const imageP = new Panel({ w: 0.5, h: 0.6, ppm: 1000, name: 'image' });
@@ -491,7 +491,7 @@ function renderWork() {
       const chosen = new Set([...(st?.tool === 'feelings' ? st.selected || [] : []), ...S.entries.filter((e) => e.kind === 'event' && e.event.type === 'feeling' && Date.now() - Date.parse(e.ts) < 10 * 60e3).map((e) => e.event.id)]);
       FEELINGS.forEach((f, i) => {
         const x = 40 + (i % cols) * (gw + 12), y = 120 + Math.floor(i / cols) * (gh + 10);
-        button(p, x, y, gw, gh, `${f.emoji} ${L(f, lang())}`, () => (link.send({ type: 'feeling', id: f.id }), flash(`${f.emoji} ${T('医師に伝えました', 'Sent to the doctor')}`)), { size: 23, bg: chosen.has(f.id) ? C.accent : C.card2, color: chosen.has(f.id) ? '#04201c' : C.ink, r: 18 });
+        button(p, x, y, gw, gh, `${f.emoji} ${L(f, lang())}`, () => (link.send({ type: 'feeling', id: f.id }), flash(`${f.emoji} ${T('医師に伝えました', 'Sent to the doctor')}`)), { size: 20, bg: chosen.has(f.id) ? C.accent : C.card2, color: chosen.has(f.id) ? '#04201c' : C.ink, r: 18 });
       });
       if (localFeelings) button(p, W - 200, 26, 160, 56, T('とじる', 'Close'), () => ((localFeelings = false), renderWork()), { size: 24 });
       return;
@@ -969,6 +969,6 @@ Promise.race([document.fonts.load(`700 32px "Noto Sans JP"`), new Promise((r) =>
   renderAll();
 });
 
-window.__eyesee = { link, get state() { return S; }, scene, uiRoot, ix };
+window.__eyesee = { link, get state() { return S; }, scene, uiRoot, ix, renderer, THREE, buttons: { iSeeBtn, confusedBtn, aiBtn }, panels: { transcript, glossary, work }, painGrid, get painOrbs() { return painOrbs; }, get workMode() { return S && workMode(); } };
 // test hook: look direction in degrees (desktop preview)
 window.__setView = (yawDeg, pitchDeg) => camera.rotation.set((pitchDeg * Math.PI) / 180, (yawDeg * Math.PI) / 180, 0, 'YXZ');
