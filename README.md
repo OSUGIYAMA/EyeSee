@@ -11,6 +11,13 @@ and also within one language, where accents and medical jargon get in the way ju
 The doctor uses a laptop or phone, the patient wears a Meta Quest, and both see one live record of the
 visit, each in their own language.
 
+<p align="center">
+  <img src="docs/img/quest-overview.png" alt="The patient's view in the headset: the conversation in Japanese, a 3D stomach model, a glossary of the doctor's terms, and the AI noting that alternatives have not been explained yet" width="75%">
+  <img src="docs/img/phone-ai.png" alt="The doctor's phone at the same moment: understanding held at 6/10, with the next thing to explain shown under the bar" width="21.7%">
+</p>
+<p align="center"><sub>Left: what the patient sees in the headset. Right: the doctor's phone at the same moment.<br>
+Screenshots of the running app on an emulated Meta Quest 3, inside a scanned meeting room (<a href="tests/readme-shots.mjs"><code>tests/readme-shots.mjs</code></a>).</sub></p>
+
 ## Why we built this
 
 We started from one question: how do you prevent the communication failures that grow out of asymmetry,
@@ -86,6 +93,11 @@ That last finding is why EyeSee's understanding score cannot reach 7/10 until al
   - a 3D symptom map that opens with one tap.
 - The patient can also say how they feel: rushed, needs time to think, wants to ask family, and so on.
 
+<p align="center">
+  <img src="docs/img/quest-sensation.png" alt="In the headset, the patient has pointed at the upper stomach of a life-size body and is asked what the pain feels like, with ten animated sensation orbs to choose from" width="75%">
+  <img src="docs/img/phone-conversation.png" alt="The doctor's phone shows the spot, the sensation and its strength on a small body map under the conversation" width="21.7%">
+</p>
+
 ### Explaining (the doctor's information)
 - **Glossary:** medical terms the doctor used are explained in plain words in the patient's language, and underlined in the text.
 - **Illustrations:** press **Show picture** and a picture opens large in front of the patient. The AI first designs one clear, anatomically sensible subject; the image has no text, and the caption is drawn in the patient's language. Tap the picture, or wait 30 s, and it flies back to where it came from.
@@ -94,6 +106,10 @@ That last finding is why EyeSee's understanding score cannot reach 7/10 until al
   - lungs;
   - step-by-step procedures: coronary stent (PCI), liver resection, gastrectomy.
 - **I see / I don't understand:** the patient marks any line they did or didn't understand. After "I don't understand", the doctor gets a simpler way to say it and the patient gets a plain explanation.
+
+<p align="center">
+  <img src="docs/img/quest-model.png" alt="In the headset, a 3D stomach shows where the lower part will be cut, next to the doctor's explanation in Japanese with the medical terms underlined" width="75%">
+</p>
 
 ### EyeSee AI
 - Hold the **AI orb** (headset) or the AI button (doctor) and ask anything. Both sides see the question and the answer.
@@ -107,6 +123,11 @@ That last finding is why EyeSee's understanding score cannot reach 7/10 until al
 3. **Comprehension check.** The AI writes 3 questions from the conversation (what will be done, the main risks, the other options). The patient must answer all 3 correctly in the headset. A wrong answer shows the explanation, alerts the doctor, and can be retried.
 4. **Agreement and signatures.** What the patient is agreeing to appears in the conversation, then the patient signs in the air with a finger and the doctor signs on the laptop or phone.
 5. **The record.** A printable record of the visit (`/record/<room>`) holds the minutes, the understanding trajectory, the AI final check, the quiz answers, the agreement, both signatures and a SHA-256 of the whole record.
+
+<p align="center">
+  <img src="docs/img/quest-quiz.png" alt="In the headset, the first of three comprehension questions: what will the surgery do?" width="49%">
+  <img src="docs/img/quest-signing.png" alt="In the headset, after all three answers are correct, the patient signs with a finger under the list of what they are agreeing to" width="49%">
+</p>
 
 ### Languages
 - **Headset (patient)** and **Console (doctor)** languages are set separately in ⋯, and any pair works, including the same language on both sides.
@@ -225,6 +246,7 @@ Cost guards: 12 images per visit and 60 paid AI calls per minute (both configura
 node tests/flow.mjs        http://localhost:8080   # whole visit over the protocol: score gate, final check, quiz, signatures, record
 node tests/xr.mjs          http://localhost:8080   # emulated Quest 3 (Meta IWER): AR, recenter, finger pokes, rays, pinch scrolling, body pointing
 node tests/demo-timing.mjs http://localhost:8080   # plays the demo as a presenter would and times it
+node tests/readme-shots.mjs http://localhost:8080  # the README screenshots (docs/img): plays the demo in an emulated Quest 3 inside a scanned room
 ```
 To test without spending credits, start a second server with the AI switched off:
 ```bash
