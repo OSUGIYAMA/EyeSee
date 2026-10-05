@@ -6,7 +6,7 @@ So that a doctor and a patient can both say "I see."
 
 医師と患者が、お互いに「I see」と言えるように。
 
-EyeSee is a shared understanding interface for a doctor and a patient. It works across languages,
+EyeSee is a shared understanding interface for a doctor and a patient. It works across 12 languages,
 and also within one language, where accents and medical jargon get in the way just as much.
 The doctor uses a laptop or phone, the patient wears a Meta Quest, and both see one live record of the
 visit, each in their own language.
@@ -15,7 +15,8 @@ visit, each in their own language.
   <img src="docs/img/quest-overview.png" alt="The patient's view in the headset: the conversation in Japanese, a 3D stomach model, a glossary of the doctor's terms, and the AI noting that alternatives have not been explained yet" width="75%">
   <img src="docs/img/phone-ai.png" alt="The doctor's phone at the same moment: understanding held at 6/10, with the next thing to explain shown under the bar" width="21.7%">
 </p>
-<p align="center"><sub>Left: what the patient sees in the headset. Right: the doctor's phone at the same moment.<br>
+<p align="center"><sub>Left: what the patient sees in the headset. Right: the doctor's phone at the same moment.
+The demo patient speaks Japanese; the other languages work the same way.<br>
 Screenshots of the running app on an emulated Meta Quest 3, inside a scanned meeting room (<a href="tests/readme-shots.mjs"><code>tests/readme-shots.mjs</code></a>).</sub></p>
 
 ## Why we built this
@@ -130,6 +131,7 @@ That last finding is why EyeSee's understanding score cannot reach 7/10 until al
 </p>
 
 ### Languages
+- **12 languages:** English, Japanese, Spanish, Chinese, Korean, Vietnamese, Portuguese, Tagalog, Arabic, Hindi, Russian and French.
 - **Headset (patient)** and **Console (doctor)** languages are set separately in ⋯, and any pair works, including the same language on both sides.
 - If the patient starts speaking another language, the headset switches to it automatically. The patient can also ask the AI to switch.
 - The headset's interface is in the patient's language too. Japanese and English are written by hand; other languages are translated once by the AI and cached.
