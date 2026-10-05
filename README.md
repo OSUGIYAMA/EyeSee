@@ -11,6 +11,29 @@ and also within one language, where accents and medical jargon get in the way ju
 The doctor uses a laptop or phone, the patient wears a Meta Quest, and both see one live record of the
 visit, each in their own language.
 
+## Why we built this
+
+We started from one question: how do you prevent the communication failures that grow out of asymmetry,
+in language (native English speakers and everyone else), in expertise, and in culture?
+
+**Our own experience.** Two of the three people on our team have been patients in hospitals in the
+United States and could not really communicate with their doctors. Things they could say naturally in
+Japanese did not carry over into English at all: for example the sound words Japanese speakers use
+for pain, such as *chiku-chiku* (a prickling, needle-like pain) or *zuki-zuki* (a throbbing pain).
+Their English was not enough, and they had no medical knowledge to fill the gaps.
+
+That is why, in EyeSee, the patient never has to translate a sensation. They point at a life-size body
+and pick what they feel from animated orbs named with those same sound words.
+
+**The doctor's side.** On September 26, 2026 we interviewed two medical students at the University of
+Tokyo Faculty of Medicine, separately: one in their 5th year and one in their 6th year, both with
+clinical clerkship experience in hospitals. Both told us that the most important communication
+challenges in medicine are in the medical interview, tests, explanations and informed consent. For a
+doctor in particular, a failure there brings the risk of a lawsuit and can put a career on the line.
+
+A misunderstanding in these moments hurts both people in the room: the patient makes a decision they
+did not understand, and the doctor carries the risk. That is why EyeSee starts with informed consent.
+
 ## Vision
 
 **Start with informed consent: the highest-stakes decision in medicine.**
@@ -36,10 +59,10 @@ matters that people truly understand before they press "Yes".
 
 ### Why medicine first
 
-- CRICO/Candello (2025) analysed U.S. medical professional liability data from 2014–2024, covering about a third of open and closed claims. 40% of asserted malpractice cases involved a communication-related factor, and 63% of those involved a provider–patient communication failure.
-- In another study of 498 claims, 49% involved a communication failure. Those cases cost about $237,600 on average, against about $154,100 without one.
-- Across 21,101 closed claims, the main drivers of patient/family–provider communication problems were expectation communication, inadequate informed consent and poor rapport.
-- In 9,500+ surgical malpractice cases, inadequate informed consent made an indemnity payment more likely. Not explaining non-surgical alternatives was a specific risk factor.
+- [CRICO/Candello (2025)](https://www.candello.com/About/Press-Release-and-News/2025-Benchmarking-Report-Press-Release) analysed U.S. medical professional liability data from 2014–2024, covering about a third of open and closed claims. 40% of asserted malpractice cases involved a communication-related factor, and 63% of those involved a provider–patient communication failure.
+- In [another study of 498 claims](https://doi.org/10.1097/PTS.0000000000000937) (Humphrey et al., *Journal of Patient Safety*, 2022), 49% involved a communication failure. Those cases cost about $237,600 on average, against about $154,100 without one.
+- Across [21,101 closed claims](https://doi.org/10.2147/RMHP.S403710) (*Risk Management and Healthcare Policy*, 2023), the main drivers of patient/family–provider communication problems were expectation communication, inadequate informed consent and poor rapport.
+- In [9,500+ surgical malpractice cases](https://www.rmf.harvard.edu/News-and-Blog/In-the-News-Home/In-the-News/2024/July/How-Informed-Consent-Impacts-Surgery-Malpractice-Outcomes) (CRICO/Candello, closed 2017–2021), inadequate informed consent made an indemnity payment more likely. Not explaining non-surgical alternatives was a specific risk factor.
 
 That last finding is why EyeSee's understanding score cannot reach 7/10 until alternatives have been discussed. The demo shows the doctor asking the AI "Did I forget anything?" and the AI catching that gap.
 
@@ -51,7 +74,7 @@ That last finding is why EyeSee's understanding score cannot reach 7/10 until al
 - **One shared conversation.** Each side reads everything in their own language, with what was actually said in small type underneath. Live indicators show who is speaking and what is being translated.
 - **Read aloud in the headset** (on by default): the doctor's words are also spoken to the patient in their language. The headset microphone pauses while it speaks.
 - **Plain explanations** and, for Japanese, **Hiragana**: the patient reads a school-textbook-level version (or mostly-kana, phrase-spaced text). The literal translation stays small underneath. On the doctor's screen, your own words shrink and what the patient actually reads is shown larger.
-- **Nuance for the doctor**, for example Japanese *hai* may mean "I'm listening" rather than "I agree", and the sound word *zuki-zuki* becomes "throbbing (zuki-zuki)". A note appears only for a concrete false guarantee ("100% safe"); encouragement and reassurance are never flagged.
+- **Nuance for the doctor**: when the patient's words carry a meaning a literal translation would lose, a short note explains it. For example, the sound word *zuki-zuki* becomes "throbbing (zuki-zuki)". A note appears only for a concrete false guarantee ("100% safe"); encouragement and reassurance are never flagged.
 
 ### The patient shows their symptoms (information made physical)
 - The patient presses **Show** in the headset, or the doctor opens **Symptoms**.
@@ -108,7 +131,7 @@ Each of the doctor's lines waits until the headset has finished reading it aloud
 After every utterance, [JEV](https://docs.typesafe.ai) (TypeSafe AI's System One model) answers typed questions about the conversation, in about 100 ms per call:
 - **score:** a 10-level rubric, from "nothing explained, even if the patient says yes" to "exemplary".
 - **noul** (probability yes/no), one per consent element: diagnosis, procedure, benefits, risks, alternatives, option to decline, anesthesia, recovery, invitation to ask questions.
-- **choice**, for the patient's understanding: none / *claimed* (only "yes" / "hai") / partial / demonstrated (they explained it back).
+- **choice**, for the patient's understanding: none / *claimed* (only "yes") / partial / demonstrated (they explained it back).
 
 The server then applies caps, so a bare "I agree" can never unlock consent:
 
